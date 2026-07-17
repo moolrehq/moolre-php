@@ -1,0 +1,9 @@
+/examples/raw-php-app/vendor export-ignore
+/examples/raw-php-app/composer.lock export-ignore
+/examples/raw-php-app/.env export-ignore
+/.env export-ignore
+/examples/raw-php-app/certs export-ignore
+/tests export-ignore
+/phpunit.xml.dist export-ignore
+/.github export-ignore
+/.gitattributes export-ignore

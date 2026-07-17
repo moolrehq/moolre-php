@@ -1,0 +1,22 @@
+{
+  "name": "moolre/raw-php-example",
+  "description": "Raw PHP example app for the Moolre PHP SDK.",
+  "private": true,
+  "license": "GPL-2.0-or-later",
+  "require": {
+    "php": "^7.4 || ^8.0",
+    "moolre/moolre-php": "^1.0"
+  },
+  "repositories": [
+    {
+      "type": "path",
+      "url": "../..",
+      "options": {
+        "symlink": true,
+        "versions": {
+          "moolre/moolre-php": "1.0.0"
+        }
+      }
+    }
+  ]
+}

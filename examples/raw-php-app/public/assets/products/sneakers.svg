@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 180" role="img" aria-labelledby="title desc">
+  <title id="title">Premium Sneakers</title>
+  <desc id="desc">Orange and navy sneaker product illustration</desc>
+  <rect width="240" height="180" rx="18" fill="#f6f7fb"/>
+  <path d="M50 112c21 4 45-8 66-21 10-6 19-7 29-1l38 22c7 4 11 11 11 19H50z" fill="#17213a"/>
+  <path d="M55 105c18 6 41-3 64-17 8-5 17-5 25 0l34 19c7 4 11 10 12 17H53c-4-7-3-14 2-19z" fill="#ffb22e"/>
+  <path d="M42 127h156c5 0 9 4 9 9s-4 9-9 9H43c-5 0-9-4-9-9s3-9 8-9z" fill="#fff"/>
+  <path d="M70 116h95" stroke="#17213a" stroke-width="6" stroke-linecap="round"/>
+  <path d="M104 89l15 28M126 87l16 30" stroke="#fff" stroke-width="5" stroke-linecap="round"/>
+</svg>

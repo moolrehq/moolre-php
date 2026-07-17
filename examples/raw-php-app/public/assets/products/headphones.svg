@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 180" role="img" aria-labelledby="title desc">
+  <title id="title">Wireless Headphones</title>
+  <desc id="desc">Orange wireless headphones product illustration</desc>
+  <rect width="240" height="180" rx="18" fill="#f6f7fb"/>
+  <path d="M68 92c0-36 22-61 52-61s52 25 52 61" fill="none" stroke="#17213a" stroke-width="16" stroke-linecap="round"/>
+  <rect x="49" y="86" width="38" height="58" rx="15" fill="#ffb22e"/>
+  <rect x="153" y="86" width="38" height="58" rx="15" fill="#ffb22e"/>
+  <rect x="59" y="96" width="18" height="38" rx="8" fill="#17213a" opacity=".18"/>
+  <rect x="163" y="96" width="18" height="38" rx="8" fill="#17213a" opacity=".18"/>
+  <path d="M90 139h60" stroke="#17213a" stroke-width="8" stroke-linecap="round"/>
+</svg>

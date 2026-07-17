@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 180" role="img" aria-labelledby="title desc">
+  <title id="title">Travel Backpack</title>
+  <desc id="desc">Navy and orange travel backpack product illustration</desc>
+  <rect width="240" height="180" rx="18" fill="#f6f7fb"/>
+  <path d="M91 55c4-23 20-35 29-35s25 12 29 35" fill="none" stroke="#17213a" stroke-width="10" stroke-linecap="round"/>
+  <rect x="69" y="46" width="102" height="111" rx="22" fill="#17213a"/>
+  <rect x="82" y="84" width="76" height="54" rx="16" fill="#263453"/>
+  <path d="M89 67h62" stroke="#ffb22e" stroke-width="8" stroke-linecap="round"/>
+  <path d="M93 104h54M96 122h48" stroke="#fff" stroke-width="5" stroke-linecap="round" opacity=".86"/>
+</svg>

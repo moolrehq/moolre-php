@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 180" role="img" aria-labelledby="title desc">
+  <title id="title">Everyday Hoodie</title>
+  <desc id="desc">Navy hoodie product illustration</desc>
+  <rect width="240" height="180" rx="18" fill="#f6f7fb"/>
+  <path d="M88 52c4-20 21-32 32-32s28 12 32 32l31 15-14 76H71L57 67z" fill="#17213a"/>
+  <path d="M94 57c5-17 18-26 26-26s21 9 26 26c-13 11-39 11-52 0z" fill="#263453"/>
+  <path d="M91 67c14 10 44 10 58 0v75H91z" fill="#22304f"/>
+  <path d="M95 83h50" stroke="#ffb22e" stroke-width="7" stroke-linecap="round"/>
+  <path d="M105 69v29M135 69v29" stroke="#fff" stroke-width="4" stroke-linecap="round"/>
+</svg>

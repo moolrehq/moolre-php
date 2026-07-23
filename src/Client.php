@@ -178,8 +178,13 @@ final class Client
         }
 
         $verification = TransactionVerification::fromArray($responseBody);
+        $returnedReference = $verification->reference();
 
-        if ($verification->reference() !== null && $verification->reference() !== $reference) {
+        if ($returnedReference === null) {
+            throw new ApiException('Moolre verification response did not include the requested transaction reference.', 200, $responseBody);
+        }
+
+        if ($returnedReference !== $reference) {
             throw new ApiException('Moolre verification response reference does not match the requested reference.', 200, $responseBody);
         }
 

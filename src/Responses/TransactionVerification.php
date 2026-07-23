@@ -87,6 +87,9 @@ final class TransactionVerification
             && $this->accountNumber() === trim($accountNumber);
     }
 
+    /**
+     * @deprecated since 1.0.1 The Moolre transaction-status endpoint does not return currency or email. Use matchesAmountAndAccountNumber().
+     */
     public function matchesPaymentDetails(string $amount, string $currency, ?string $email = null, ?string $accountNumber = null): bool
     {
         if (!$this->isSuccessful()) {

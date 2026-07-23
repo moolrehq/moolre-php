@@ -33,7 +33,9 @@ try {
     $transaction = $client->verifyPayment($reference);
 
     if ($transaction->isSuccessful()) {
-        echo 'Payment verified for reference ' . htmlspecialchars((string) $transaction->reference(), ENT_QUOTES, 'UTF-8');
+        // Before fulfillment, load the local pending order and require
+        // matchesAmountAndAccountNumber($orderAmount, $accountNumber).
+        echo 'Moolre reports a successful payment for reference ' . htmlspecialchars((string) $transaction->reference(), ENT_QUOTES, 'UTF-8');
         exit;
     }
 

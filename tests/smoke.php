@@ -83,16 +83,30 @@ if (!$verification->isSuccessful()) {
 
 $statusVerification = \Moolre\Responses\TransactionVerification::fromArray([
     'status' => 1,
+    'code' => 'SS01',
+    'message' => 'Transaction Successful',
     'data' => [
         'txstatus' => 1,
+        'txtype' => 1,
         'externalref' => 'ref_123',
+        'thirdpartyref' => '85850036850',
         'amount' => '10.00',
+        'value' => '10.00',
+        'fee' => '0.50',
+        'networkfee' => '0.01',
         'accountnumber' => 'acct_123',
+        'transactionid' => 50143673,
+        'ts' => '2026-07-22 04:09:31',
     ],
 ]);
 
 if (!$statusVerification->matchesAmountAndAccountNumber('10.00', 'acct_123')) {
     fwrite(STDERR, 'Transaction-status response smoke test failed.' . PHP_EOL);
+    exit(1);
+}
+
+if ($statusVerification->matchesPaymentDetails('10.00', 'GHS', 'customer@example.com', 'acct_123')) {
+    fwrite(STDERR, 'Strict status-response helper smoke test failed.' . PHP_EOL);
     exit(1);
 }
 

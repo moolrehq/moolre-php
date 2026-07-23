@@ -98,11 +98,22 @@ final class ClientTest extends TestCase
         $transport = new FakeTransport([
             new HttpResponse(200, json_encode([
                 'status' => 1,
+                'code' => 'SS01',
+                'message' => 'Transaction Successful',
                 'data' => [
                     'txstatus' => 1,
+                    'txtype' => 1,
+                    'payer' => '233559426442',
+                    'payee' => 'Example Merchant',
                     'externalref' => 'ref_123',
+                    'thirdpartyref' => '85850036850',
                     'amount' => '50.00',
+                    'value' => '50.00',
+                    'fee' => '0.50',
+                    'networkfee' => '0.01',
                     'accountnumber' => 'acct_123',
+                    'transactionid' => 50143673,
+                    'ts' => '2026-07-22 04:09:31',
                 ],
             ])),
         ]);
@@ -113,6 +124,26 @@ final class ClientTest extends TestCase
         self::assertSame('ref_123', $verification->reference());
         self::assertTrue($verification->matchesAmountAndAccountNumber('50.00', 'acct_123'));
         self::assertFalse($verification->matchesAmountAndAccountNumber('49.00', 'acct_123'));
+        self::assertFalse($verification->matchesPaymentDetails('50.00', 'GHS', 'customer@example.com', 'acct_123'));
+    }
+
+    public function testItRejectsVerificationResponsesWithoutTheRequestedReference(): void
+    {
+        $this->expectException(ApiException::class);
+        $this->expectExceptionMessage('did not include the requested transaction reference');
+
+        $transport = new FakeTransport([
+            new HttpResponse(200, json_encode([
+                'status' => 1,
+                'data' => [
+                    'txstatus' => 1,
+                    'amount' => '50.00',
+                    'accountnumber' => 'acct_123',
+                ],
+            ])),
+        ]);
+
+        (new Client('pub_key', 'acct_123', $transport, Client::DEFAULT_BASE_URL, 60, false, 'merchant_username'))->verifyPayment('ref_123');
     }
 
     public function testPaymentRequestKeepsNonceConstructorPosition(): void

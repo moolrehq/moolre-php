@@ -33,18 +33,32 @@ final class TransactionVerification
             throw new ApiException('Moolre verification response did not include transaction data.', 200, $payload);
         }
 
+        self::assertUnambiguousStatus($payload['data'], $payload);
+        self::assertUnambiguousFields(
+            $payload['data'],
+            ['externalref', 'reference', 'id', 'transaction_reference', 'tx_reference'],
+            'transaction reference',
+            $payload
+        );
+        self::assertUnambiguousFields(
+            $payload['data'],
+            ['accountnumber', 'account_number'],
+            'account number',
+            $payload
+        );
+
         return new self($payload);
     }
 
     public function isSuccessful(): bool
     {
-        return self::hasSuccessfulStatus($this->payload['data']['status'] ?? $this->payload['data']['txstatus'] ?? null);
+        return self::hasSuccessfulStatus($this->payload['data']['txstatus'] ?? $this->payload['data']['status'] ?? null);
     }
 
     public function reference(): ?string
     {
-        return $this->stringField('reference')
-            ?? $this->stringField('externalref')
+        return $this->stringField('externalref')
+            ?? $this->stringField('reference')
             ?? $this->stringField('id')
             ?? $this->stringField('transaction_reference')
             ?? $this->stringField('tx_reference');
@@ -136,6 +150,70 @@ final class TransactionVerification
     private static function hasSuccessfulStatus($status): bool
     {
         return $status === 1 || $status === '1' || $status === true;
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     * @param array<string, mixed> $payload
+     */
+    private static function assertUnambiguousStatus(array $data, array $payload): void
+    {
+        if (!array_key_exists('txstatus', $data) || !array_key_exists('status', $data)) {
+            return;
+        }
+
+        $transactionStatus = self::normalizeStatus($data['txstatus']);
+        $legacyStatus = self::normalizeStatus($data['status']);
+
+        if ($transactionStatus === null || $legacyStatus === null || $transactionStatus !== $legacyStatus) {
+            throw new ApiException('Moolre verification response included conflicting transaction statuses.', 200, $payload);
+        }
+    }
+
+    /**
+     * @param mixed $status
+     */
+    private static function normalizeStatus($status): ?bool
+    {
+        if ($status === 1 || $status === '1' || $status === true) {
+            return true;
+        }
+
+        if ($status === 0 || $status === '0' || $status === false) {
+            return false;
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     * @param string[] $fields
+     * @param array<string, mixed> $payload
+     */
+    private static function assertUnambiguousFields(array $data, array $fields, string $label, array $payload): void
+    {
+        $values = [];
+
+        foreach ($fields as $field) {
+            if (!array_key_exists($field, $data) || $data[$field] === null) {
+                continue;
+            }
+
+            if (!is_scalar($data[$field])) {
+                throw new ApiException(sprintf('Moolre verification response included an invalid %s field.', $label), 200, $payload);
+            }
+
+            $value = trim((string) $data[$field]);
+
+            if ($value !== '') {
+                $values[$value] = true;
+            }
+        }
+
+        if (count($values) > 1) {
+            throw new ApiException(sprintf('Moolre verification response included conflicting %s fields.', $label), 200, $payload);
+        }
     }
 
     private function stringField(string $field): ?string

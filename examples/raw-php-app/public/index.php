@@ -39,6 +39,7 @@ render_page('Checkout', function () use ($config, $hasMissingCredentials, $produ
             data-cart-form
             data-currency="<?= e($config['currency']) ?>"
         >
+            <input type="hidden" name="csrf_token" value="<?= e(csrf_token()) ?>">
             <input type="hidden" name="cart" value="<?= e($cartPayload) ?>" data-cart-payload>
             <input type="hidden" name="amount" value="<?= e(number_format($cartTotal, 2, '.', '')) ?>" data-cart-amount>
 

@@ -24,12 +24,25 @@ Install with Composer:
 composer require moolre/moolre-php
 ```
 
-Until the package is published to Packagist, install it into an app as a local path repository:
+For local package development, you can install a checkout as a path repository:
 
 ```bash
 composer config repositories.moolre path /absolute/path/to/moolre-php
 composer require moolre/moolre-php:@dev
 ```
+
+### Upgrading to 1.0.2
+
+No public methods were removed and no existing method signatures changed. This security release intentionally rejects inputs that older releases accepted:
+
+- Successful verification responses must include the configured Moolre account number.
+- Conflicting or malformed status, reference, and account-number fields are rejected.
+- Payment-initiation responses are rejected when their reference differs from the requested reference.
+- Callback and redirect URLs must use HTTPS, except for loopback development URLs.
+- Floating-point amounts that require rounding beyond two decimal places are rejected.
+- Generated references now contain a 128-bit random suffix, so applications must continue treating references as opaque strings.
+
+Applications already using Moolre's documented status response, HTTPS public URLs, decimal-string amounts, and opaque references require no code changes. New integrations should use `verifySuccessfulPayment()` before fulfillment.
 
 For development inside this package:
 
@@ -40,7 +53,7 @@ composer install
 
 ## Example Project
 
-A complete raw PHP demo app is included at [`examples/raw-php-app`](examples/raw-php-app). It shows a cart checkout, payment initiation, webhook callback handling, customer redirect verification, and a small local JSON order store.
+A complete raw PHP demo app is included at [`examples/raw-php-app`](examples/raw-php-app). It shows a cart checkout, payment initiation, webhook callback handling, customer redirect verification, and a small local JSON order store. Its receipt is bound to the initiating browser session, and its redacted order list is available only from a loopback address.
 
 Run it from the SDK repository:
 
@@ -140,7 +153,7 @@ $client = new Client(
 );
 
 $payment = $client->initiatePayment([
-    'reference' => Client::generateReference('order_1001'),
+    'reference' => Client::generateReference('checkout'),
     'email' => 'customer@example.com',
     'amount' => '120.00',
     'currency' => 'GHS',
@@ -175,53 +188,61 @@ $client = new Client(
     false,
     'your_moolre_account_username'
 );
-$transaction = $client->verifyPayment($_GET['reference'] ?? '');
-
 // Load the pending order from your database by reference first.
 $order = [
     'amount' => '120.00',
-    'account_number' => 'your_account_number',
 ];
 
-if ($transaction->matchesAmountAndAccountNumber(
-    $order['amount'],
-    $order['account_number']
-)) {
-    // Mark the order, invoice, wallet top-up, or subscription as paid.
-}
+$transaction = $client->verifySuccessfulPayment(
+    $_GET['reference'] ?? '',
+    $order['amount']
+);
+
+// Atomically transition this exact pending order to paid. Fulfil only if
+// your database reports that this request performed the first transition.
 ```
 
 ## Integration Examples
 
 The SDK is framework-agnostic. Each framework only needs to provide configuration, routing, redirects, and your own order update logic.
 
-The status endpoint provides `txstatus`, `externalref`, `amount`, and `accountnumber`; it does not provide currency or customer email. In every webhook and redirect handler, load the local pending order by its reference and require `matchesAmountAndAccountNumber($orderAmount, $accountNumber)` before fulfillment. The abbreviated route examples below show only the transport and routing setup.
+The status endpoint provides `txstatus`, `externalref`, `amount`, and `accountnumber`; it does not provide currency or customer email. In every webhook and redirect handler, load the local pending order by its exact reference and call `verifySuccessfulPayment($reference, $orderAmount)` before fulfillment. The client automatically checks the configured account number. Update the order atomically so callback replays cannot fulfil it twice or reopen cancelled/refunded orders.
 
 ```php
-$localOrder = $orders->findPendingByReference($reference); // Your database lookup.
+$localOrder = $orders->findPendingByReference($reference); // Exact full-reference lookup.
 
-if ($localOrder === null || !$transaction->matchesAmountAndAccountNumber(
-    (string) $localOrder['amount'],
-    $moolreAccountNumber
-)) {
-    throw new RuntimeException('Payment is not verified for this local order.');
+if ($localOrder === null) {
+    throw new RuntimeException('Unknown pending payment reference.');
 }
 
-// It is now safe to fulfil this local order.
+$transaction = $client->verifySuccessfulPayment($reference, (string) $localOrder['amount']);
+
+// Use a conditional database update such as:
+// UPDATE orders SET status = 'paid', provider_transaction_id = ?
+// WHERE id = ? AND status = 'pending'
+// Fulfil only when exactly one row changed.
 ```
 
 ### Laravel
 
 ```php
 use Moolre\Client;
+use App\Models\Order;
 
 Route::post('/pay', function () {
     $client = new Client(config('services.moolre.public_key'), config('services.moolre.account_number'));
+    $order = Order::query()
+        ->whereKey(request('order_id'))
+        ->where('user_id', auth()->id())
+        ->where('status', 'pending')
+        ->firstOrFail();
+    $reference = Client::generateReference('checkout');
+    $order->update(['moolre_reference' => $reference]);
 
     $payment = $client->initiatePayment([
-        'reference' => Client::generateReference('order_' . auth()->id()),
-        'email' => auth()->user()->email,
-        'amount' => request('amount'),
+        'reference' => $reference,
+        'email' => $order->billing_email,
+        'amount' => (string) $order->total,
         'currency' => 'GHS',
         'callback' => route('moolre.webhook'),
         'redirect' => route('moolre.redirect'),
@@ -244,12 +265,16 @@ Route::post('/moolre/webhook', function () {
         false,
         config('services.moolre.api_user')
     );
-    $transaction = $client->verifyPayment(request('reference'));
+    $reference = (string) request('reference');
+    $order = Order::where('moolre_reference', $reference)->where('status', 'pending')->firstOrFail();
+    $transaction = $client->verifySuccessfulPayment($reference, (string) $order->total);
+    $changed = Order::whereKey($order->id)->where('status', 'pending')->update([
+        'status' => 'paid',
+        'provider_transaction_id' => $transaction->data()['transactionid'] ?? null,
+    ]);
 
-    abort_unless($transaction->isSuccessful(), 402);
-
-    // Load the pending local order, then require matchesAmountAndAccountNumber()
-    // before updating fulfillment state.
+    // Dispatch fulfillment only when $changed === 1.
+    return response()->json(['status' => 'ok']);
 })->name('moolre.webhook');
 
 Route::get('/moolre/redirect', function () {
@@ -262,12 +287,12 @@ Route::get('/moolre/redirect', function () {
         false,
         config('services.moolre.api_user')
     );
-    $transaction = $client->verifyPayment(request('reference'));
+    $reference = (string) request('reference');
+    $order = Order::where('moolre_reference', $reference)->firstOrFail();
+    abort_unless(auth()->check() && (int) $order->user_id === (int) auth()->id(), 403);
+    $client->verifySuccessfulPayment($reference, (string) $order->total);
 
-    abort_unless($transaction->isSuccessful(), 402);
-
-    // Load the pending local order, then require matchesAmountAndAccountNumber()
-    // before showing a paid receipt.
+    return view('orders.receipt', ['order' => $order]);
 })->name('moolre.redirect');
 ```
 
@@ -296,10 +321,17 @@ final class MoolreController extends AbstractController
             $_ENV['MOOLRE_ACCOUNT_NUMBER']
         );
 
+        $order = $this->orders->requirePendingForCustomer(
+            (string) $request->request->get('order_id'),
+            $this->getUser()
+        );
+        $reference = Client::generateReference('checkout');
+        $this->orders->setMoolreReference($order, $reference);
+
         $payment = $client->initiatePayment([
-            'reference' => Client::generateReference('order_' . $request->request->get('order_id')),
-            'email' => $request->request->get('email'),
-            'amount' => $request->request->get('amount'),
+            'reference' => $reference,
+            'email' => $order->getBillingEmail(),
+            'amount' => $order->getTotalAsDecimal(),
             'currency' => 'GHS',
             'callback' => $this->generateUrl('moolre_webhook', [], UrlGeneratorInterface::ABSOLUTE_URL),
             'redirect' => $this->generateUrl('moolre_redirect', [], UrlGeneratorInterface::ABSOLUTE_URL),
@@ -325,15 +357,18 @@ final class MoolreController extends AbstractController
             $_ENV['MOOLRE_API_USER']
         );
         $payload = json_decode($request->getContent(), true) ?: $request->request->all();
-        $transaction = $client->verifyPayment((string) ($payload['reference'] ?? ''));
+        $reference = (string) ($payload['reference'] ?? '');
+        $order = $this->orders->findPendingByMoolreReference($reference);
 
-        if (!$transaction->isSuccessful()) {
-            return new Response('Payment not successful.', 402);
+        if ($order === null) {
+            return new Response('Unknown pending payment.', 404);
         }
 
-        // Load the pending local order, then require matchesAmountAndAccountNumber()
-        // before updating fulfillment state.
-        return new Response('Payment verified.');
+        $transaction = $client->verifySuccessfulPayment($reference, $order->getTotalAsDecimal());
+        $transitioned = $this->orders->markPaidIfPending($order, $transaction->data()['transactionid'] ?? null);
+
+        // Dispatch fulfillment only when $transitioned is true.
+        return new Response('Payment verified.', 200);
     }
 
     #[Route('/moolre/redirect', name: 'moolre_redirect', methods: ['GET'])]
@@ -348,15 +383,16 @@ final class MoolreController extends AbstractController
             false,
             $_ENV['MOOLRE_API_USER']
         );
-        $transaction = $client->verifyPayment((string) $request->query->get('reference'));
+        $reference = (string) $request->query->get('reference');
+        $order = $this->orders->findByMoolreReference($reference);
 
-        if (!$transaction->isSuccessful()) {
-            return new Response('Payment not successful.', 402);
+        if ($order === null || $order->getCustomer() !== $this->getUser()) {
+            throw $this->createAccessDeniedException();
         }
 
-        // Require matchesAmountAndAccountNumber() against the pending local order
-        // before rendering a paid receipt.
-        return new Response('Payment receipt page.');
+        $client->verifySuccessfulPayment($reference, $order->getTotalAsDecimal());
+
+        return $this->render('orders/receipt.html.twig', ['order' => $order]);
     }
 }
 ```
@@ -368,14 +404,17 @@ use Moolre\Client;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 
-$app->post('/pay', function (Request $request, Response $response) {
+$app->post('/pay', function (Request $request, Response $response) use ($orders, $currentUser) {
     $data = (array) $request->getParsedBody();
     $client = new Client($_ENV['MOOLRE_PUBLIC_KEY'], $_ENV['MOOLRE_ACCOUNT_NUMBER']);
+    $order = $orders->requirePendingForCustomer((string) ($data['order_id'] ?? ''), $currentUser->id());
+    $reference = Client::generateReference('checkout');
+    $orders->setMoolreReference($order, $reference);
 
     $payment = $client->initiatePayment([
-        'reference' => Client::generateReference('order_' . ($data['order_id'] ?? '')),
-        'email' => $data['email'] ?? '',
-        'amount' => $data['amount'] ?? '',
+        'reference' => $reference,
+        'email' => $order->billingEmail(),
+        'amount' => $order->totalAsDecimal(),
         'currency' => 'GHS',
         'callback' => 'https://example.com/moolre/webhook',
         'redirect' => 'https://example.com/moolre/redirect',
@@ -390,7 +429,7 @@ $app->post('/pay', function (Request $request, Response $response) {
         ->withStatus(302);
 });
 
-$app->post('/moolre/webhook', function (Request $request, Response $response) {
+$app->post('/moolre/webhook', function (Request $request, Response $response) use ($orders) {
     $client = new Client(
         $_ENV['MOOLRE_PUBLIC_KEY'],
         $_ENV['MOOLRE_ACCOUNT_NUMBER'],
@@ -401,20 +440,21 @@ $app->post('/moolre/webhook', function (Request $request, Response $response) {
         $_ENV['MOOLRE_API_USER']
     );
     $payload = (array) $request->getParsedBody();
-    $transaction = $client->verifyPayment((string) ($payload['reference'] ?? ''));
+    $reference = (string) ($payload['reference'] ?? '');
+    $order = $orders->findPendingByMoolreReference($reference);
 
-    if (!$transaction->isSuccessful()) {
-        $response->getBody()->write('Payment not successful.');
-        return $response->withStatus(402);
+    if ($order === null) {
+        return $response->withStatus(404);
     }
 
-    // Load the pending local order, then require matchesAmountAndAccountNumber()
-    // before updating fulfillment state.
+    $transaction = $client->verifySuccessfulPayment($reference, $order->totalAsDecimal());
+    $transitioned = $orders->markPaidIfPending($order, $transaction->data()['transactionid'] ?? null);
+    // Dispatch fulfillment only when $transitioned is true.
     $response->getBody()->write('Payment verified.');
     return $response;
 });
 
-$app->get('/moolre/redirect', function (Request $request, Response $response) {
+$app->get('/moolre/redirect', function (Request $request, Response $response) use ($orders, $currentUser) {
     $client = new Client(
         $_ENV['MOOLRE_PUBLIC_KEY'],
         $_ENV['MOOLRE_ACCOUNT_NUMBER'],
@@ -424,15 +464,14 @@ $app->get('/moolre/redirect', function (Request $request, Response $response) {
         false,
         $_ENV['MOOLRE_API_USER']
     );
-    $transaction = $client->verifyPayment((string) ($request->getQueryParams()['reference'] ?? ''));
+    $reference = (string) ($request->getQueryParams()['reference'] ?? '');
+    $order = $orders->findByMoolreReference($reference);
 
-    if (!$transaction->isSuccessful()) {
-        $response->getBody()->write('Payment not successful.');
-        return $response->withStatus(402);
+    if ($order === null || $order->customerId() !== $currentUser->id()) {
+        return $response->withStatus(403);
     }
 
-    // Require matchesAmountAndAccountNumber() against the pending local order
-    // before rendering a paid receipt.
+    $client->verifySuccessfulPayment($reference, $order->totalAsDecimal());
     $response->getBody()->write('Payment receipt page.');
     return $response;
 });
@@ -457,10 +496,17 @@ final class MoolreController extends Controller
             getenv('MOOLRE_ACCOUNT_NUMBER')
         );
 
+        $order = $this->orders->requirePendingForCustomer(
+            (string) $this->request->getPost('order_id'),
+            (string) session('customer_id')
+        );
+        $reference = Client::generateReference('checkout');
+        $this->orders->setMoolreReference($order, $reference);
+
         $payment = $client->initiatePayment([
-            'reference' => Client::generateReference('order_' . $this->request->getPost('order_id')),
-            'email' => $this->request->getPost('email'),
-            'amount' => $this->request->getPost('amount'),
+            'reference' => $reference,
+            'email' => $order->billingEmail(),
+            'amount' => $order->totalAsDecimal(),
             'currency' => 'GHS',
             'callback' => site_url('moolre/webhook'),
             'redirect' => site_url('moolre/redirect'),
@@ -484,14 +530,16 @@ final class MoolreController extends Controller
             false,
             getenv('MOOLRE_API_USER') ?: null
         );
-        $transaction = $client->verifyPayment((string) $this->request->getPost('reference'));
+        $reference = (string) $this->request->getPost('reference');
+        $order = $this->orders->findPendingByMoolreReference($reference);
 
-        if (!$transaction->isSuccessful()) {
-            return $this->response->setStatusCode(402)->setBody('Payment not successful.');
+        if ($order === null) {
+            return $this->response->setStatusCode(404)->setBody('Unknown pending payment.');
         }
 
-        // Load the pending local order, then require matchesAmountAndAccountNumber()
-        // before updating fulfillment state.
+        $transaction = $client->verifySuccessfulPayment($reference, $order->totalAsDecimal());
+        $transitioned = $this->orders->markPaidIfPending($order, $transaction->data()['transactionid'] ?? null);
+        // Dispatch fulfillment only when $transitioned is true.
         return $this->response->setBody('Payment verified.');
     }
 
@@ -506,14 +554,14 @@ final class MoolreController extends Controller
             false,
             getenv('MOOLRE_API_USER') ?: null
         );
-        $transaction = $client->verifyPayment((string) $this->request->getGet('reference'));
+        $reference = (string) $this->request->getGet('reference');
+        $order = $this->orders->findByMoolreReference($reference);
 
-        if (!$transaction->isSuccessful()) {
-            return $this->response->setStatusCode(402)->setBody('Payment not successful.');
+        if ($order === null || $order->customerId() !== (string) session('customer_id')) {
+            return $this->response->setStatusCode(403)->setBody('Receipt unavailable.');
         }
 
-        // Require matchesAmountAndAccountNumber() against the pending local order
-        // before rendering a paid receipt.
+        $client->verifySuccessfulPayment($reference, $order->totalAsDecimal());
         return $this->response->setBody('Payment receipt page.');
     }
 }
@@ -537,7 +585,7 @@ Required payment fields:
 
 - `reference`: Your unique order or payment reference
 - `email`: Customer email address
-- `amount`: Positive decimal amount, preferably supplied as a string such as `'120.00'`. Values are normalized to two decimal places; scientific notation and values with more than two decimal places are rejected.
+- `amount`: Positive decimal amount, preferably supplied as a string such as `'120.00'`. Scientific notation and values with more than two decimal places are rejected, including floats that would require rounding.
 - `currency`: Currency code, currently `GHS`
 - `callback`: Fully qualified server callback/webhook URL where Moolre can post payment updates
 
@@ -549,23 +597,29 @@ Optional fields:
 - `nonce_value`: Optional value if your app wants to associate a nonce with the payment request
 - `tx_source`: Optional transaction source. Defaults to `php-sdk`
 
-Callback and redirect URLs must use `http` or `https`. Use `https` in production.
+Callback and redirect URLs must use HTTPS. Plain HTTP is accepted only for `localhost`, `127.0.0.1`, and `::1` development URLs.
 
 ### `$client->verifyPayment(string $reference): TransactionVerification`
 
-Confirms the payment status for a reference. It sends a JSON `POST` to the configured status URL with `type: 1`, `idtype: '1'`, `id: $reference`, and `accountnumber: $accountNumber`; it includes both `X-API-USER` and `X-API-PUBKEY` headers when the public key is configured. `$apiUser` is mandatory for this method. Moolre must return the original `externalref` (or equivalent reference); if it is missing or does not match the requested reference, the SDK throws `Moolre\Exceptions\ApiException`.
+Confirms the payment status for a reference. It sends a JSON `POST` to the configured status URL with `type: 1`, `idtype: '1'`, `id: $reference`, and `accountnumber: $accountNumber`; it includes both `X-API-USER` and `X-API-PUBKEY` headers when the public key is configured. `$apiUser` is mandatory for this method. Moolre must return the original `externalref` (or an unambiguous equivalent reference); missing, mismatched, or conflicting reference/status fields are rejected. Successful responses must also contain the configured account number.
+
+This lower-level method can return an unsuccessful transaction for polling. Do not use `isSuccessful()` alone to fulfil an order.
+
+### `$client->verifySuccessfulPayment(string $reference, string $expectedAmount): TransactionVerification`
+
+Use this method before delivering value. It requires a successful transaction and exact matches for the requested reference, expected local amount, and the account number configured on the client. It throws `Moolre\Exceptions\ApiException` for pending, failed, missing, or mismatched payment data.
 
 ### `$transaction->matchesAmountAndAccountNumber(string $amount, string $accountNumber): bool`
 
-Use this method with Moolre's transaction-status endpoint before delivering value. That endpoint returns `data.txstatus`, `data.externalref`, `data.amount`, and `data.accountnumber`, but does not return currency or customer email. This method requires a successful `txstatus`, the exact normalized amount, and the account number; the client requires `externalref` to match the requested local reference.
+This response-level compatibility helper requires a successful `txstatus`, exact normalized amount, and account number. Prefer `Client::verifySuccessfulPayment()`, which also binds the response to the exact requested reference and the client's configured account.
 
 ### `$transaction->matchesPaymentDetails(string $amount, string $currency, ?string $email = null, ?string $accountNumber = null): bool` — deprecated for Moolre status responses
 
-This strict compatibility helper returns `true` only when a response includes and matches amount, currency, email, and account number. Moolre's transaction-status endpoint does not include the required currency or email fields, so the method correctly returns `false` for that endpoint. Use `matchesAmountAndAccountNumber()` instead.
+This strict compatibility helper returns `true` only when a response includes and matches amount, currency, email, and account number. Moolre's transaction-status endpoint does not include the required currency or email fields, so the method correctly returns `false` for that endpoint. Use `Client::verifySuccessfulPayment()` instead.
 
 ### `Client::generateReference(string $prefix = 'moolre'): string`
 
-Generates a unique reference that is safe to send to Moolre.
+Generates a unique reference with 128 bits of cryptographically secure randomness. The method fails closed if the operating system cannot provide secure randomness. Prefixes are sanitized and limited to 32 characters. They should be non-sensitive labels such as `checkout`; do not embed sequential order IDs, email addresses, or customer IDs.
 
 ## Error Handling
 
@@ -585,11 +639,13 @@ try {
 
 - Keep your Moolre public key and account number outside source control.
 - Always verify payment server-side before marking an order as paid.
-- Match the verified reference to a local pending order.
-- Validate the final amount and currency against your own database.
-- Load a local pending order by the returned reference, then require `matchesAmountAndAccountNumber()` to succeed before delivering value; do not treat a callback or redirect as proof of payment.
+- Match the exact opaque reference to a local pending order; never derive an order ID from a callback reference.
+- Call `verifySuccessfulPayment()` with the amount stored on that local order before delivering value.
+- The status response does not confirm currency or email. Keep those values server-controlled when creating the order.
+- Use an atomic, idempotent pending-to-paid transition and never reopen cancelled or refunded orders from callback replays.
+- Protect customer-facing receipts with the customer's authenticated session or a separate signed state token. A payment reference alone is not authorization to view order data.
 - Treat `callback` as the server notification/webhook URL and `redirect` as the customer return page.
-- Use HTTPS callback and redirect URLs in production.
+- Use HTTPS callback and redirect URLs; HTTP is accepted only for loopback development.
 
 ## Troubleshooting
 

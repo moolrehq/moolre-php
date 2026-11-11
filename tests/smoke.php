@@ -28,9 +28,34 @@ use Moolre\Http\NativeTransport;
 use Moolre\Http\TransportInterface;
 
 require __DIR__ . '/../examples/raw-php-app/app/helpers.php';
+require __DIR__ . '/../examples/raw-php-app/app/OrderStore.php';
 
 if (example_strip_inline_comment('true # use false for sandbox') !== 'true') {
     fwrite(STDERR, "Example environment inline comment smoke test failed.\n");
+    exit(1);
+}
+
+$orderStorePath = tempnam(sys_get_temp_dir(), 'moolre-orders-');
+
+if ($orderStorePath === false) {
+    fwrite(STDERR, "Unable to create temporary order store.\n");
+    exit(1);
+}
+
+$orderStore = new OrderStore($orderStorePath);
+$orderStore->create(['reference' => 'atomic_ref', 'amount' => '10.00', 'status' => 'pending']);
+$firstTransition = $orderStore->markPaidIfPending('atomic_ref', ['provider_transaction_id' => 'tx_1']);
+$secondTransition = $orderStore->markPaidIfPending('atomic_ref', ['provider_transaction_id' => 'tx_2']);
+$orderStore->create(['reference' => 'cancelled_ref', 'amount' => '10.00', 'status' => 'cancelled']);
+$cancelledTransition = $orderStore->markPaidIfPending('cancelled_ref', ['provider_transaction_id' => 'tx_3']);
+@unlink($orderStorePath);
+
+if (!$firstTransition['transitioned']
+    || $secondTransition['transitioned']
+    || ($secondTransition['order']['provider_transaction_id'] ?? '') !== 'tx_1'
+    || $cancelledTransition['transitioned']
+    || ($cancelledTransition['order']['status'] ?? '') !== 'cancelled') {
+    fwrite(STDERR, "Atomic order transition smoke test failed.\n");
     exit(1);
 }
 
@@ -50,7 +75,7 @@ $transport = new class implements TransportInterface {
             return new HttpResponse(200, '{"status":1,"data":{"authorization_url":"https://checkout.example/pay","reference":"ref_123"}}');
         }
 
-        return new HttpResponse(200, '{"status":1,"data":{"status":1,"reference":"ref_123"}}');
+        return new HttpResponse(200, '{"status":1,"data":{"status":1,"reference":"ref_123","amount":"10.00","accountnumber":"acct_123"}}');
     }
 };
 
@@ -78,6 +103,11 @@ if ($payment->authorizationUrl() !== 'https://checkout.example/pay') {
 
 if (!$verification->isSuccessful()) {
     fwrite(STDERR, "Payment verification smoke test failed.\n");
+    exit(1);
+}
+
+if (!$verification->matchesAmountAndAccountNumber('10.00', 'acct_123')) {
+    fwrite(STDERR, "Strict payment verification smoke test failed.\n");
     exit(1);
 }
 
@@ -254,6 +284,32 @@ try {
     $client->initiatePayment([
         'reference' => 'ref_123',
         'email' => 'customer@example.com',
+        'amount' => 10.001,
+        'currency' => 'GHS',
+        'callback' => 'https://example.com/callback',
+    ]);
+    fwrite(STDERR, 'Float amount precision validation smoke test failed.' . PHP_EOL);
+    exit(1);
+} catch (ValidationException $exception) {
+}
+
+try {
+    $client->initiatePayment([
+        'reference' => 'ref_123',
+        'email' => 'customer@example.com',
+        'amount' => '10.00',
+        'currency' => 'GHS',
+        'callback' => 'http://example.com/callback',
+    ]);
+    fwrite(STDERR, 'HTTPS callback validation smoke test failed.' . PHP_EOL);
+    exit(1);
+} catch (ValidationException $exception) {
+}
+
+try {
+    $client->initiatePayment([
+        'reference' => 'ref_123',
+        'email' => 'customer@example.com',
         'amount' => '10.00',
         'currency' => 'GHS',
         'callback' => 'ftp://example.com/callback',
@@ -277,6 +333,21 @@ $mismatchTransport = new class implements TransportInterface {
 try {
     (new Client('pub_key', 'acct_123', $mismatchTransport, Client::DEFAULT_BASE_URL, 60, false, 'merchant_username'))->verifyPayment('ref_123');
     fwrite(STDERR, "Verification reference mismatch smoke test failed.\n");
+    exit(1);
+} catch (ApiException $exception) {
+}
+
+try {
+    \Moolre\Responses\TransactionVerification::fromArray([
+        'status' => 1,
+        'data' => [
+            'status' => 1,
+            'txstatus' => 0,
+            'reference' => 'ref_123',
+            'externalref' => 'different_ref',
+        ],
+    ]);
+    fwrite(STDERR, 'Ambiguous verification response smoke test failed.' . PHP_EOL);
     exit(1);
 } catch (ApiException $exception) {
 }

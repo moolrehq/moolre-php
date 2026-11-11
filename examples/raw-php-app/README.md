@@ -10,6 +10,8 @@ The example intentionally uses plain PHP files and a JSON order store so the SDK
 - `public/redirect.php`: receives the customer after checkout, verifies the reference, and renders the payment result
 - `public/orders.php`: lists recent local demo orders
 
+The order list is available only from a loopback address and redacts email addresses and references. The customer receipt is bound to the browser session that initiated checkout. These safeguards are examples, not a replacement for your application's authentication and authorization rules.
+
 ## Run the Example
 
 From the SDK repository:
@@ -134,4 +136,8 @@ This example keeps the code deliberately small. In a real app:
 - Optionally set `expiration_time` to a short window that makes sense for your checkout flow. The minimum is `1` minute.
 - Verify the Moolre reference on your server before marking anything as paid
 - Reject callback payloads and redirect requests whose reference does not match a local pending order
+- Use an atomic, idempotent pending-to-paid transition and uniquely store the provider transaction ID
+- Never reopen cancelled or refunded orders from callback replays
+- Rate-limit public callback and checkout routes at your web server or application edge
+- Keep receipt and order-list pages behind customer or administrator authorization
 - Log SDK exceptions internally and show safe error messages to customers

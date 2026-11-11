@@ -50,7 +50,7 @@ final class ClientTest extends TestCase
     public function testItVerifiesPayment(): void
     {
         $transport = new FakeTransport([
-            new HttpResponse(200, '{"status":1,"data":{"status":1,"reference":"ref_123"}}'),
+            new HttpResponse(200, '{"status":1,"data":{"status":1,"reference":"ref_123","amount":"50.00","accountnumber":"acct_123"}}'),
         ]);
 
         $client = new Client('pub_key', 'acct_123', $transport, Client::DEFAULT_BASE_URL, 60, false, 'merchant_username');
@@ -84,6 +84,7 @@ final class ClientTest extends TestCase
                 'data' => [
                     'status' => 1,
                     'id' => 'ref_123',
+                    'accountnumber' => 'acct_123',
                 ],
             ])),
         ]);
@@ -146,6 +147,129 @@ final class ClientTest extends TestCase
         (new Client('pub_key', 'acct_123', $transport, Client::DEFAULT_BASE_URL, 60, false, 'merchant_username'))->verifyPayment('ref_123');
     }
 
+    public function testItRejectsConflictingVerificationReferences(): void
+    {
+        $this->expectException(ApiException::class);
+        $this->expectExceptionMessage('conflicting transaction reference');
+
+        TransactionVerification::fromArray([
+            'status' => 1,
+            'data' => [
+                'txstatus' => 1,
+                'reference' => 'requested_ref',
+                'externalref' => 'different_ref',
+            ],
+        ]);
+    }
+
+    public function testItRejectsConflictingVerificationStatuses(): void
+    {
+        $this->expectException(ApiException::class);
+        $this->expectExceptionMessage('conflicting transaction statuses');
+
+        TransactionVerification::fromArray([
+            'status' => 1,
+            'data' => [
+                'status' => 1,
+                'txstatus' => 0,
+                'externalref' => 'ref_123',
+            ],
+        ]);
+    }
+
+    public function testItRejectsMalformedCanonicalVerificationReference(): void
+    {
+        $this->expectException(ApiException::class);
+        $this->expectExceptionMessage('invalid transaction reference');
+
+        TransactionVerification::fromArray([
+            'status' => 1,
+            'data' => [
+                'txstatus' => 1,
+                'externalref' => [],
+                'reference' => 'ref_123',
+            ],
+        ]);
+    }
+
+    public function testItRejectsConflictingAccountNumberFields(): void
+    {
+        $this->expectException(ApiException::class);
+        $this->expectExceptionMessage('conflicting account number');
+
+        TransactionVerification::fromArray([
+            'status' => 1,
+            'data' => [
+                'txstatus' => 1,
+                'externalref' => 'ref_123',
+                'accountnumber' => 'acct_123',
+                'account_number' => 'different_account',
+            ],
+        ]);
+    }
+
+    public function testSuccessfulVerificationRequiresConfiguredAccountNumber(): void
+    {
+        $this->expectException(ApiException::class);
+        $this->expectExceptionMessage('does not match the configured account');
+
+        $transport = new FakeTransport([
+            new HttpResponse(200, '{"status":1,"data":{"txstatus":1,"externalref":"ref_123","amount":"50.00","accountnumber":"different_account"}}'),
+        ]);
+
+        (new Client('pub_key', 'acct_123', $transport, Client::DEFAULT_BASE_URL, 60, false, 'merchant_username'))->verifyPayment('ref_123');
+    }
+
+    public function testSuccessfulVerificationRequiresReturnedAccountNumber(): void
+    {
+        $this->expectException(ApiException::class);
+        $this->expectExceptionMessage('did not include an account number');
+
+        $transport = new FakeTransport([
+            new HttpResponse(200, '{"status":1,"data":{"txstatus":1,"externalref":"ref_123","amount":"50.00"}}'),
+        ]);
+
+        (new Client('pub_key', 'acct_123', $transport, Client::DEFAULT_BASE_URL, 60, false, 'merchant_username'))->verifyPayment('ref_123');
+    }
+
+    public function testStrictSuccessfulVerificationBindsExpectedAmount(): void
+    {
+        $transport = new FakeTransport([
+            new HttpResponse(200, '{"status":1,"data":{"txstatus":1,"externalref":"ref_123","amount":"50.00","accountnumber":"acct_123"}}'),
+        ]);
+
+        $verification = (new Client('pub_key', 'acct_123', $transport, Client::DEFAULT_BASE_URL, 60, false, 'merchant_username'))
+            ->verifySuccessfulPayment('ref_123', '50.00');
+
+        self::assertTrue($verification->isSuccessful());
+    }
+
+    public function testStrictSuccessfulVerificationRejectsAmountMismatch(): void
+    {
+        $this->expectException(ApiException::class);
+        $this->expectExceptionMessage('amount or account number');
+
+        $transport = new FakeTransport([
+            new HttpResponse(200, '{"status":1,"data":{"txstatus":1,"externalref":"ref_123","amount":"49.00","accountnumber":"acct_123"}}'),
+        ]);
+
+        (new Client('pub_key', 'acct_123', $transport, Client::DEFAULT_BASE_URL, 60, false, 'merchant_username'))
+            ->verifySuccessfulPayment('ref_123', '50.00');
+    }
+
+    public function testStrictSuccessfulVerificationRejectsPendingTransaction(): void
+    {
+        $this->expectException(ApiException::class);
+        $this->expectExceptionMessage('not successful');
+
+        $transport = new FakeTransport([
+            new HttpResponse(200, '{"status":1,"data":{"txstatus":0,"externalref":"ref_123","amount":"50.00","accountnumber":"acct_123"}}'),
+        ]);
+
+        (new Client('pub_key', 'acct_123', $transport, Client::DEFAULT_BASE_URL, 60, false, 'merchant_username'))
+            ->verifySuccessfulPayment('ref_123', '50.00');
+    }
+
     public function testPaymentRequestKeepsNonceConstructorPosition(): void
     {
         $request = new PaymentRequest(
@@ -175,32 +299,34 @@ final class ClientTest extends TestCase
         self::assertSame('50.50', $request->toArray()['amount']);
     }
 
-    /**
-     * @dataProvider invalidAmounts
-     * @param mixed $amount
-     */
-    public function testItRejectsInvalidAmounts($amount): void
+    public function testItRejectsInvalidAmounts(): void
     {
-        $this->expectException(ValidationException::class);
-
-        new PaymentRequest(
-            'ref_123',
-            'customer@example.com',
-            $amount,
-            'GHS',
-            'https://example.com/callback'
-        );
+        foreach (self::invalidAmounts() as $label => [$amount]) {
+            try {
+                new PaymentRequest(
+                    'ref_123',
+                    'customer@example.com',
+                    $amount,
+                    'GHS',
+                    'https://example.com/callback'
+                );
+                self::fail(sprintf('Invalid amount data set "%s" was accepted.', $label));
+            } catch (ValidationException $exception) {
+                self::addToAssertionCount(1);
+            }
+        }
     }
 
     /**
      * @return array<string, array{0: mixed}>
      */
-    public function invalidAmounts(): array
+    public static function invalidAmounts(): array
     {
         return [
             'infinity' => [INF],
             'scientific notation' => ['1e3'],
             'three decimal places' => ['10.001'],
+            'float with three decimal places' => [10.001],
             'surrounding whitespace' => [' 10.00 '],
             'zero' => ['0.00'],
         ];
@@ -364,6 +490,88 @@ final class ClientTest extends TestCase
             'callback' => 'https://example.com/callback',
             'redirect' => 'ftp://example.com/return',
         ]);
+    }
+
+    public function testItRejectsInsecureNonLocalCallbackUrl(): void
+    {
+        $this->expectException(ValidationException::class);
+
+        $client = new Client('pub_key', 'acct_123', new FakeTransport([]));
+        $client->initiatePayment([
+            'reference' => 'ref_123',
+            'email' => 'customer@example.com',
+            'amount' => '10.00',
+            'currency' => 'GHS',
+            'callback' => 'http://example.com/callback',
+        ]);
+    }
+
+    public function testItAllowsHttpCallbackForLoopbackDevelopment(): void
+    {
+        $transport = new FakeTransport([
+            new HttpResponse(200, '{"status":1,"data":{"authorization_url":"https://checkout.moolre.test/pay/abc","reference":"ref_123"}}'),
+        ]);
+
+        $client = new Client('pub_key', 'acct_123', $transport);
+        $client->initiatePayment([
+            'reference' => 'ref_123',
+            'email' => 'customer@example.com',
+            'amount' => '10.00',
+            'currency' => 'GHS',
+            'callback' => 'http://127.0.0.1:8080/callback',
+        ]);
+
+        self::assertSame('http://127.0.0.1:8080/callback', $transport->requests[0]['payload']['callback']);
+    }
+
+    public function testItRejectsMismatchedInitiationReference(): void
+    {
+        $this->expectException(ApiException::class);
+        $this->expectExceptionMessage('payment-initiation response reference does not match');
+
+        $transport = new FakeTransport([
+            new HttpResponse(200, '{"status":1,"data":{"authorization_url":"https://checkout.moolre.test/pay/abc","reference":"different_ref"}}'),
+        ]);
+
+        (new Client('pub_key', 'acct_123', $transport))->initiatePayment([
+            'reference' => 'ref_123',
+            'email' => 'customer@example.com',
+            'amount' => '10.00',
+            'currency' => 'GHS',
+            'callback' => 'https://example.com/callback',
+        ]);
+    }
+
+    public function testItRejectsMalformedInitiationReference(): void
+    {
+        $this->expectException(ApiException::class);
+        $this->expectExceptionMessage('invalid reference');
+
+        $transport = new FakeTransport([
+            new HttpResponse(200, '{"status":1,"data":{"authorization_url":"https://checkout.moolre.test/pay/abc","reference":[]}}'),
+        ]);
+
+        (new Client('pub_key', 'acct_123', $transport))->initiatePayment([
+            'reference' => 'ref_123',
+            'email' => 'customer@example.com',
+            'amount' => '10.00',
+            'currency' => 'GHS',
+            'callback' => 'https://example.com/callback',
+        ]);
+    }
+
+    public function testGeneratedReferenceUses128BitsOfRandomness(): void
+    {
+        self::assertMatchesRegularExpression('/^order_1001_\d+_[a-f0-9]{32}$/', Client::generateReference('order_1001'));
+        self::assertLessThanOrEqual(32, strlen(explode('_', Client::generateReference(str_repeat('a', 100)), 2)[0]));
+    }
+
+    public function testItRejectsOversizedVerificationReference(): void
+    {
+        $this->expectException(ValidationException::class);
+
+        (new Client('pub_key', 'acct_123', new FakeTransport([]), Client::DEFAULT_BASE_URL, 60, false, 'merchant_username'))
+            ->verifyPayment(str_repeat('a', 256));
     }
 
     public function testItRejectsInvalidExpirationTime(): void

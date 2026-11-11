@@ -20,7 +20,7 @@ $client = new Client(
     getenv('MOOLRE_API_USER') ?: null
 );
 
-$reference = Client::generateReference('order_1001');
+$reference = Client::generateReference('checkout');
 
 try {
     
@@ -41,6 +41,7 @@ try {
     header('Location: ' . $payment->authorizationUrl(), true, 302);
     exit;
 } catch (MoolreException $exception) {
+    error_log('Moolre payment initiation failed: ' . $exception->getMessage());
     http_response_code(400);
-    echo 'Unable to initiate payment: ' . htmlspecialchars($exception->getMessage(), ENT_QUOTES, 'UTF-8');
+    echo 'Unable to initiate payment.';
 }

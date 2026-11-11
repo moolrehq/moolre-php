@@ -30,7 +30,17 @@ if (!$autoloadLoaded) {
     exit;
 }
 
+$isHttpsRequest = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== '' && $_SERVER['HTTPS'] !== 'off';
+session_set_cookie_params([
+    'httponly' => true,
+    'secure' => $isHttpsRequest,
+    'samesite' => 'Lax',
+]);
 session_start();
+
+header('Cache-Control: no-store, private');
+header('X-Content-Type-Options: nosniff');
+header('Referrer-Policy: same-origin');
 
 $config = require __DIR__ . '/config.php';
 $orders = new OrderStore(__DIR__ . '/../storage/orders.json');

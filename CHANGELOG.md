@@ -4,6 +4,17 @@ All notable changes to `moolre/moolre-php` will be documented in this file.
 
 ## Unreleased
 
+## 1.0.2 - 2026-11-11
+
+- Reject ambiguous verification responses with conflicting status, reference, or account-number fields.
+- Bind successful verification responses to the client's configured account number.
+- Add `verifySuccessfulPayment()` for strict reference, status, amount, and account verification.
+- Require HTTPS callback and redirect URLs except for loopback development URLs.
+- Reject floating-point amounts with more than two decimal places.
+- Generate references with 128 bits of secure randomness and fail closed if secure randomness is unavailable.
+- Harden the raw PHP example with CSRF protection, session-authorized receipts, local-only redacted order listings, bounded callback bodies, safe errors, and atomic idempotent payment transitions.
+- Correct security and framework-integration guidance.
+
 ## 1.0.1 - 2026-07-23
 
 - Made transaction-status responses require an `externalref` or equivalent reference that exactly matches the requested payment reference.

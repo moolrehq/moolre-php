@@ -119,6 +119,92 @@ function require_post(): void
     }
 }
 
+function csrf_token(): string
+{
+    if (!isset($_SESSION['csrf_token']) || !is_string($_SESSION['csrf_token'])) {
+        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+    }
+
+    return $_SESSION['csrf_token'];
+}
+
+function require_valid_csrf(): void
+{
+    $provided = isset($_POST['csrf_token']) && is_string($_POST['csrf_token']) ? $_POST['csrf_token'] : '';
+
+    if ($provided === '' || !hash_equals(csrf_token(), $provided)) {
+        http_response_code(403);
+        echo 'Invalid checkout request.';
+        exit;
+    }
+}
+
+function remember_checkout_reference(string $reference): void
+{
+    if (!isset($_SESSION['moolre_checkout_references']) || !is_array($_SESSION['moolre_checkout_references'])) {
+        $_SESSION['moolre_checkout_references'] = [];
+    }
+
+    $_SESSION['moolre_checkout_references'][$reference] = time();
+    $_SESSION['moolre_checkout_references'] = array_slice($_SESSION['moolre_checkout_references'], -20, null, true);
+}
+
+function owns_checkout_reference(string $reference): bool
+{
+    return isset($_SESSION['moolre_checkout_references'])
+        && is_array($_SESSION['moolre_checkout_references'])
+        && isset($_SESSION['moolre_checkout_references'][$reference]);
+}
+
+function is_loopback_request(): bool
+{
+    $address = (string) ($_SERVER['REMOTE_ADDR'] ?? '');
+
+    return in_array($address, ['127.0.0.1', '::1'], true);
+}
+
+function can_view_demo_orders(): bool
+{
+    return PHP_SAPI === 'cli-server' && is_loopback_request();
+}
+
+function mask_email(string $email): string
+{
+    $parts = explode('@', $email, 2);
+
+    if (count($parts) !== 2 || $parts[0] === '') {
+        return 'hidden';
+    }
+
+    return substr($parts[0], 0, 1) . '***@' . $parts[1];
+}
+
+function mask_reference(string $reference): string
+{
+    if (strlen($reference) <= 12) {
+        return '***';
+    }
+
+    return substr($reference, 0, 6) . '...' . substr($reference, -6);
+}
+
+/**
+ * @return array<string, mixed>
+ */
+function safe_transaction_data(\Moolre\Responses\TransactionVerification $transaction): array
+{
+    $data = $transaction->data();
+    $safe = [];
+
+    foreach (['transactionid', 'externalref', 'reference', 'amount', 'accountnumber', 'ts'] as $field) {
+        if (isset($data[$field]) && is_scalar($data[$field])) {
+            $safe[$field] = $data[$field];
+        }
+    }
+
+    return $safe;
+}
+
 /**
  * @param array<string, mixed> $config
  */
@@ -143,16 +229,4 @@ function is_sandbox_config(array $config): bool
     $host = strtolower((string) parse_url((string) ($config['base_url'] ?? ''), PHP_URL_HOST));
 
     return $host === 'sandbox.moolre.com';
-}
-
-/**
- * @param array<string, mixed> $order
- * @param array<string, mixed> $config
- */
-function verified_payment_matches_order(array $order, array $config, \Moolre\Responses\TransactionVerification $transaction): bool
-{
-    return $transaction->matchesAmountAndAccountNumber(
-        (string) ($order['amount'] ?? ''),
-        (string) ($config['account_number'] ?? '')
-    );
 }

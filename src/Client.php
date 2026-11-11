@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Moolre;
 
 use Moolre\Exceptions\ApiException;
+use Moolre\Exceptions\MoolreException;
 use Moolre\Exceptions\ValidationException;
 use Moolre\Http\HttpResponse;
 use Moolre\Http\NativeTransport;
@@ -121,7 +122,7 @@ final class Client
     /**
      * Create a Moolre checkout session and return the hosted payment URL.
      *
-     * @param array<string, mixed>|PaymentRequest $payment
+     * @param mixed $payment Must be an array<string, mixed> or PaymentRequest.
      */
     public function initiatePayment($payment): PaymentInitiation
     {
@@ -146,7 +147,14 @@ final class Client
             throw new ApiException('Moolre response was not a JSON object.', 200, $responseBody);
         }
 
-        return PaymentInitiation::fromArray($responseBody);
+        $initiation = PaymentInitiation::fromArray($responseBody);
+        $returnedReference = $initiation->reference();
+
+        if ($returnedReference !== null && $returnedReference !== $request->reference()) {
+            throw new ApiException('Moolre payment-initiation response reference does not match the requested reference.', 200, $responseBody);
+        }
+
+        return $initiation;
     }
 
     /**
@@ -158,6 +166,10 @@ final class Client
 
         if ($reference === '') {
             throw ValidationException::forField('reference', 'Reference is required.');
+        }
+
+        if (strlen($reference) > 255 || preg_match('/[\x00-\x1F\x7F]/', $reference)) {
+            throw ValidationException::forField('reference', 'Reference must be at most 255 characters and cannot contain control characters.');
         }
 
         if ($this->apiUser === null || $this->apiUser === '') {
@@ -188,6 +200,36 @@ final class Client
             throw new ApiException('Moolre verification response reference does not match the requested reference.', 200, $responseBody);
         }
 
+        if ($verification->isSuccessful()) {
+            $returnedAccountNumber = $verification->accountNumber();
+
+            if ($returnedAccountNumber === null) {
+                throw new ApiException('Successful Moolre verification response did not include an account number.', 200, $responseBody);
+            }
+
+            if ($returnedAccountNumber !== $this->accountNumber) {
+                throw new ApiException('Moolre verification response account number does not match the configured account.', 200, $responseBody);
+            }
+        }
+
+        return $verification;
+    }
+
+    /**
+     * Verify a successful payment and bind it to the expected local amount.
+     */
+    public function verifySuccessfulPayment(string $reference, string $expectedAmount): TransactionVerification
+    {
+        $verification = $this->verifyPayment($reference);
+
+        if (!$verification->isSuccessful()) {
+            throw new ApiException('Moolre transaction is not successful.', 200, $verification->raw());
+        }
+
+        if (!$verification->matchesAmountAndAccountNumber($expectedAmount, $this->accountNumber)) {
+            throw new ApiException('Moolre transaction amount or account number does not match the expected payment.', 200, $verification->raw());
+        }
+
         return $verification;
     }
 
@@ -198,11 +240,12 @@ final class Client
     {
         $prefix = trim($prefix);
         $prefix = $prefix === '' ? 'moolre' : preg_replace('/[^A-Za-z0-9_-]/', '-', $prefix);
+        $prefix = substr((string) $prefix, 0, 32);
 
         try {
-            $random = bin2hex(random_bytes(8));
-        } catch (\Exception $exception) {
-            $random = str_replace('.', '', uniqid('', true));
+            $random = bin2hex(random_bytes(16));
+        } catch (\Throwable $exception) {
+            throw new MoolreException('Unable to generate a cryptographically secure payment reference.', 0, $exception);
         }
 
         return sprintf('%s_%s_%s', $prefix, time(), $random);

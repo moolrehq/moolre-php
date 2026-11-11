@@ -137,8 +137,8 @@ final class NativeTransport implements TransportInterface
             throw new TransportException('Moolre API request failed: ' . ($error['message'] ?? 'Unknown transport error.'));
         }
 
-        $statusCode = $this->extractStatusCode($http_response_header ?? []);
-        $responseHeaders = $this->extractHeaders($http_response_header ?? []);
+        $statusCode = $this->extractStatusCode($http_response_header);
+        $responseHeaders = $this->extractHeaders($http_response_header);
 
         return new HttpResponse($statusCode, $responseBody, $responseHeaders);
     }

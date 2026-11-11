@@ -38,6 +38,10 @@ function webhook_reference(array $payload): string
     }
 
     foreach ($candidates as $candidate) {
+        if (!is_scalar($candidate)) {
+            continue;
+        }
+
         $reference = trim((string) $candidate);
 
         if ($reference !== '') {
@@ -55,7 +59,24 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     ]);
 }
 
-$rawBody = file_get_contents('php://input') ?: '';
+$contentLength = (int) ($_SERVER['CONTENT_LENGTH'] ?? 0);
+
+if ($contentLength > 65536) {
+    webhook_response(413, [
+        'status' => 'error',
+        'message' => 'Callback payload is too large.',
+    ]);
+}
+
+$rawBody = file_get_contents('php://input', false, null, 0, 65537) ?: '';
+
+if (strlen($rawBody) > 65536) {
+    webhook_response(413, [
+        'status' => 'error',
+        'message' => 'Callback payload is too large.',
+    ]);
+}
+
 $decoded = json_decode($rawBody, true);
 $payload = is_array($decoded) ? $decoded : $_POST;
 $reference = webhook_reference($payload);
@@ -76,31 +97,50 @@ if ($localOrder === null) {
     ]);
 }
 
+if (($localOrder['status'] ?? '') === 'paid') {
+    webhook_response(200, [
+        'status' => 'ok',
+        'payment_status' => 'paid',
+    ]);
+}
+
+if (($localOrder['status'] ?? '') !== 'pending') {
+    webhook_response(409, [
+        'status' => 'error',
+        'message' => 'Order is not awaiting payment.',
+    ]);
+}
+
 try {
     $client = new Client($config['public_key'], $config['account_number'], null, $config['base_url'], 60, false, $config['api_user'], $config['verification_url']);
-    $transaction = $client->verifyPayment($reference);
-    $status = verified_payment_matches_order($localOrder, $config, $transaction) ? 'paid' : 'pending';
-
-    $orders->updateByReference($reference, [
-        'status' => $status,
-        'moolre_data' => $transaction->data(),
-        'callback_payload' => $payload,
+    $transaction = $client->verifySuccessfulPayment($reference, (string) ($localOrder['amount'] ?? ''));
+    $transition = $orders->markPaidIfPending($reference, [
+        'moolre_data' => safe_transaction_data($transaction),
     ]);
+
+    if ($transition['order'] === null) {
+        webhook_response(404, [
+            'status' => 'error',
+            'message' => 'Reference does not match a local order.',
+        ]);
+    }
+
+    if (($transition['order']['status'] ?? '') !== 'paid') {
+        webhook_response(409, [
+            'status' => 'error',
+            'message' => 'Order is no longer awaiting payment.',
+        ]);
+    }
 
     webhook_response(200, [
         'status' => 'ok',
-        'payment_status' => $status,
-        'reference' => $transaction->reference() ?: $reference,
+        'payment_status' => 'paid',
     ]);
 } catch (MoolreException $exception) {
-    $orders->updateByReference($reference, [
-        'status' => 'pending',
-        'error' => $exception->getMessage(),
-        'callback_payload' => $payload,
-    ]);
+    error_log('Moolre callback verification failed: ' . $exception->getMessage());
 
     webhook_response(503, [
         'status' => 'error',
-        'message' => $exception->getMessage(),
+        'message' => 'Payment verification is temporarily unavailable.',
     ]);
 }

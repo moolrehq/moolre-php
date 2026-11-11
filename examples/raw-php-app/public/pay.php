@@ -8,6 +8,7 @@ use Moolre\Client;
 use Moolre\Exceptions\MoolreException;
 
 require_post();
+require_valid_csrf();
 
 if (missing_credentials($config)) {
     render_page('Missing credentials', static function (): void {
@@ -40,7 +41,7 @@ if ($orderId === '' || $email === '' || !filter_var($email, FILTER_VALIDATE_EMAI
     exit;
 }
 
-$reference = Client::generateReference('order_' . $orderId);
+$reference = Client::generateReference('checkout');
 $orders->create([
     'order_id' => $orderId,
     'reference' => $reference,
@@ -50,6 +51,7 @@ $orders->create([
     'items' => $cartLines,
     'status' => 'pending',
 ]);
+remember_checkout_reference($reference);
 
 try {
     $client = new Client($config['public_key'], $config['account_number'], null, $config['base_url'], 60, false, $config['api_user'], $config['verification_url']);
@@ -75,16 +77,17 @@ try {
 
     redirect_to($payment->authorizationUrl());
 } catch (MoolreException $exception) {
+    error_log('Moolre payment initiation failed: ' . $exception->getMessage());
     $orders->updateByReference($reference, [
         'status' => 'failed',
-        'error' => $exception->getMessage(),
+        'error' => 'Payment initiation failed.',
     ]);
 
-    render_page('Payment could not start', static function () use ($exception): void {
+    render_page('Payment could not start', static function (): void {
         ?>
         <section class="result result-danger">
             <h1>Payment could not start.</h1>
-            <p><?= e($exception->getMessage()) ?></p>
+            <p>Please try again or contact the merchant if the problem continues.</p>
             <a class="button-link" href="/">Back to checkout</a>
         </section>
         <?php

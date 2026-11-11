@@ -4,6 +4,12 @@ declare(strict_types=1);
 
 require __DIR__ . '/../app/bootstrap.php';
 
+if (!can_view_demo_orders()) {
+    http_response_code(404);
+    echo 'Not found.';
+    exit;
+}
+
 $allOrders = $orders->recent(50);
 
 render_page('Orders', static function () use ($allOrders): void {
@@ -36,8 +42,8 @@ render_page('Orders', static function () use ($allOrders): void {
                     <?php foreach ($allOrders as $order): ?>
                         <tr>
                             <td><?= e((string) ($order['order_id'] ?? '')) ?></td>
-                            <td><code><?= e((string) ($order['reference'] ?? '')) ?></code></td>
-                            <td><?= e((string) ($order['email'] ?? '')) ?></td>
+                            <td><code><?= e(mask_reference((string) ($order['reference'] ?? ''))) ?></code></td>
+                            <td><?= e(mask_email((string) ($order['email'] ?? ''))) ?></td>
                             <td><?= e(format_money($order['amount'] ?? 0, (string) ($order['currency'] ?? 'GHS'))) ?></td>
                             <td><?php render_status_badge((string) ($order['status'] ?? 'pending')); ?></td>
                         </tr>

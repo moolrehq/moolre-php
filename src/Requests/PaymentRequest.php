@@ -129,10 +129,19 @@ final class PaymentRequest
         return $payload;
     }
 
+    public function reference(): string
+    {
+        return $this->reference;
+    }
+
     private function validate(): void
     {
         if ($this->reference === '') {
             throw ValidationException::forField('reference', 'Reference is required.');
+        }
+
+        if (strlen($this->reference) > 255 || preg_match('/[\x00-\x1F\x7F]/', $this->reference)) {
+            throw ValidationException::forField('reference', 'Reference must be at most 255 characters and cannot contain control characters.');
         }
 
         if ($this->email === '' || !filter_var($this->email, FILTER_VALIDATE_EMAIL)) {
@@ -176,10 +185,31 @@ final class PaymentRequest
             throw ValidationException::forField($field, sprintf('A valid %s URL is required.', $field));
         }
 
-        $scheme = strtolower((string) parse_url($url, PHP_URL_SCHEME));
+        $parts = parse_url($url);
+
+        if (!is_array($parts) || !isset($parts['host']) || $parts['host'] === '' || isset($parts['user']) || isset($parts['pass'])) {
+            throw ValidationException::forField($field, sprintf('%s URL must include a host and cannot include user credentials.', ucfirst($field)));
+        }
+
+        $scheme = strtolower((string) ($parts['scheme'] ?? ''));
 
         if (!in_array($scheme, ['http', 'https'], true)) {
             throw ValidationException::forField($field, sprintf('%s URL must use HTTP or HTTPS.', ucfirst($field)));
         }
+
+        if ($scheme === 'http' && !self::isLoopbackHost((string) $parts['host'])) {
+            throw ValidationException::forField($field, sprintf('%s URL must use HTTPS except for local development.', ucfirst($field)));
+        }
+
+        if (isset($parts['fragment'])) {
+            throw ValidationException::forField($field, sprintf('%s URL cannot contain a fragment.', ucfirst($field)));
+        }
+    }
+
+    private static function isLoopbackHost(string $host): bool
+    {
+        $host = strtolower(trim($host, '[]'));
+
+        return $host === 'localhost' || $host === '127.0.0.1' || $host === '::1';
     }
 }

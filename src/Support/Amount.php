@@ -20,6 +20,12 @@ final class Amount
                 return null;
             }
 
+            $scaled = $amount * 100;
+
+            if (abs($scaled - round($scaled)) > 0.0000001) {
+                return null;
+            }
+
             $value = number_format($amount, 2, '.', '');
         } elseif (is_string($amount)) {
             if ($amount === '' || trim($amount) !== $amount) {

@@ -32,6 +32,11 @@ final class PaymentInitiation
             throw new ApiException('Moolre response did not include an authorization URL.', 200, $payload);
         }
 
+        if (array_key_exists('reference', $payload['data'])
+            && (!is_scalar($payload['data']['reference']) || trim((string) $payload['data']['reference']) === '')) {
+            throw new ApiException('Moolre payment-initiation response included an invalid reference.', 200, $payload);
+        }
+
         return new self($payload);
     }
 
@@ -42,7 +47,13 @@ final class PaymentInitiation
 
     public function reference(): ?string
     {
-        return isset($this->payload['data']['reference']) ? (string) $this->payload['data']['reference'] : null;
+        if (!isset($this->payload['data']['reference']) || !is_scalar($this->payload['data']['reference'])) {
+            return null;
+        }
+
+        $reference = trim((string) $this->payload['data']['reference']);
+
+        return $reference !== '' ? $reference : null;
     }
 
     /**

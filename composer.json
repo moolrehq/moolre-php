@@ -1,14 +1,18 @@
 {
   "name": "moolre/moolre-php",
-  "description": "Framework-agnostic PHP SDK for initiating and verifying Moolre payments.",
+  "description": "PHP SDK for Moolre: hosted checkout (Client) plus a full server SDK (Moolre\\Moolre) for collections, payouts, name validation, sales, SMS, WhatsApp, payment links, bulk payouts and webhook verification.",
   "type": "library",
   "keywords": [
+    "ghana",
+    "mobile-money",
     "moolre",
     "payment",
     "payments",
-    "mobile-money",
-    "ghana",
-    "php-sdk"
+    "payouts",
+    "php-sdk",
+    "sms",
+    "webhooks",
+    "whatsapp"
   ],
   "homepage": "https://github.com/moolrehq/moolre-php",
   "license": "GPL-2.0-or-later",
@@ -21,7 +25,8 @@
   "support": {
     "email": "hello@moolre.com",
     "issues": "https://github.com/moolrehq/moolre-php/issues",
-    "source": "https://github.com/moolrehq/moolre-php"
+    "source": "https://github.com/moolrehq/moolre-php",
+    "docs": "https://docs.moolre.com/sdks"
   },
   "require": {
     "php": "^7.4 || ^8.0",
@@ -46,11 +51,17 @@
     "smoke": "php tests/smoke.php",
     "test": [
       "@smoke",
-      "@phpunit"
+      "@phpunit",
+      "@sdk-test"
     ],
     "phpunit": "@php vendor/bin/phpunit",
     "analyse": "@php vendor/bin/phpstan analyse --no-progress",
-    "prepublish-check": "@php scripts/prepublish-check.php"
+    "prepublish-check": "@php scripts/prepublish-check.php",
+    "sdk-test": "@php tests/sdk/run.php",
+    "bundle": "@php scripts/bundle.php"
   },
-  "minimum-stability": "stable"
+  "minimum-stability": "stable",
+  "suggest": {
+    "ext-curl": "Required by Moolre\\Moolre (the server SDK); the legacy Client falls back to PHP streams without it."
+  }
 }

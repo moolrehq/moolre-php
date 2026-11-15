@@ -4,6 +4,14 @@ All notable changes to `moolre/moolre-php` will be documented in this file.
 
 ## Unreleased
 
+## 1.1.0 - 2026-11-15
+
+- Add the server SDK `Moolre\Moolre`: collections with the OTP flow, payouts with optional `senderName`, name validation, internal transfers, accounts and cursor-paginated transactions, airtime and data sales, SMS, WhatsApp, payment links, bulk payouts, invoices and webhook deliveries/resend/test.
+- Add `Moolre\Webhook` (`verify`, `construct`, `parse`, `sign`) for `X-Moolre-Signature` verification.
+- Results expose `requestId` and `notices`; money calls accept an `idempotencyKey`; optional strict HTTP status mode.
+- Add `scripts/bundle.php` to build a single-file `moolre-sdk.php`.
+- `Moolre\Client` and all existing classes are unchanged.
+
 ## 1.0.2 - 2026-11-11
 
 - Reject ambiguous verification responses with conflicting status, reference, or account-number fields.

@@ -51,6 +51,121 @@ cd moolre-php
 composer install
 ```
 
+## Server SDK (`Moolre\Moolre`)
+
+Since 1.1.0 the package also contains a full server SDK for the Moolre API. The hosted-checkout `Moolre\Client` below is unchanged; `Moolre\Moolre` adds collections (with the OTP flow), payouts, name validation, accounts and transactions, airtime and data sales, SMS, WhatsApp, payment links, bulk payouts, invoices and webhook verification. It needs PHP 7.4+, `ext-curl` and `ext-json`.
+
+```php
+use Moolre\Moolre;
+
+$moolre = new Moolre([
+    'environment'   => 'sandbox',            // 'live' (https://api.moolre.com) or 'sandbox' (https://sandbox.moolre.com)
+    'user'          => getenv('MOOLRE_USER'),      // X-API-USER
+    'apiKey'        => getenv('MOOLRE_API_KEY'),   // X-API-KEY    (payouts, accounts, sales, bulk)
+    'pubKey'        => getenv('MOOLRE_PUBKEY'),    // X-API-PUBKEY (collections, payment links)
+    'vasKey'        => getenv('MOOLRE_VASKEY'),    // X-API-VASKEY (SMS, WhatsApp)
+    'accountNumber' => '10000001',                 // default wallet for every call
+]);
+
+// Collect from a customer (safe to retry with the same key)
+$result = $moolre->payments->initiate([
+    'channel' => 'MTN', 'currency' => 'GHS', 'payer' => '0241234567',
+    'amount' => '1.00', 'externalRef' => 'PAY-1001',
+], ['idempotencyKey' => Moolre::newIdempotencyKey()]);
+
+echo $result->code, ' ', $result->requestId;
+if ($result->otpRequired()) {            // code TP14: the customer was sent an SMS code
+    $moolre->payments->verifyOtp([/* same params */ 'otpCode' => '123456']);
+}
+```
+
+Every call returns a `Moolre\Result` (`ok`, `status`, `code`, `message`, `data`, `go`, `requestId`, `notices`, `replayed`, `httpStatus`, `raw`). When the API answers `status: 0` an `Moolre\Exceptions\ApiError` is thrown (subclasses `AuthenticationError`, `IdempotencyError`, `RateLimitError`, `NotFoundError`, `ValidationError`, `ServerError`) carrying `apiCode`, `apiMessage`, `fields`, `requestId` and `result`; pass `'throwOnError' => false` to get the result instead. Network failures throw `NetworkError`, non-JSON replies `InvalidResponseError`, bad configuration `ConfigurationError`.
+
+Other options: `'strictHttpStatus' => true` (ask for real 4xx/5xx codes), `maxRetries` (default 2; only reads and calls that carry an `idempotencyKey` are retried), `timeoutSec` (60), `logger` (a `callable(string $message, array $context)`; API notices are logged once per code, default `error_log`).
+
+### Payouts and name validation
+
+```php
+$name = $moolre->transfers->validateName(['channel' => 'MTN', 'currency' => 'GHS', 'receiver' => '0241234567']);
+
+$moolre->transfers->create([
+    'channel' => 'MTN', 'currency' => 'GHS', 'amount' => '25.00', 'receiver' => '0241234567',
+    'externalRef' => 'PAYOUT-77', 'senderName' => 'Acme',
+], ['idempotencyKey' => 'payout-77']);
+```
+
+### Transactions with cursor pagination
+
+```php
+foreach ($moolre->accounts->iterateTransactions(['status' => 1], ['pageSize' => 200]) as $tx) {
+    echo $tx['transactionid'], ' ', $tx['amount'], "\n";
+}
+```
+
+### Bulk payouts
+
+```php
+$batch = $moolre->bulk->create([
+    'currency' => 'GHS', 'batchRef' => 'payroll-2026-11',
+    'items' => [
+        ['externalRef' => 'p-1', 'receiver' => '0241234567', 'channel' => 'MTN', 'amount' => '10.00'],
+        ['externalRef' => 'p-2', 'receiver' => '0201234567', 'channel' => 'TELECEL', 'amount' => '5.50', 'senderName' => 'Acme'],
+    ],
+], ['idempotencyKey' => 'payroll-2026-11']);
+
+print_r($batch->data['rejected']);                     // rows refused at submit, with index/code/message/externalref
+$moolre->bulk->status(['batchRef' => 'payroll-2026-11']);   // counts + a page of items
+foreach ($moolre->bulk->iterateItems(['batchRef' => 'payroll-2026-11', 'status' => 'failed']) as $item) {
+    echo $item['externalref'], ' ', $item['code'], PHP_EOL;
+}
+```
+
+Up to 500 items per batch, validated on submit; `'atomic' => true` queues nothing if any row is rejected. Sending the same `batchRef` and body again replays the original batch (`BLK02`). A `bulk_payout.completed` webhook is sent when every item is final.
+
+### Invoices
+
+```php
+$inv = $moolre->invoices->create([
+    'currency' => 'GHS', 'invoiceName' => 'Term 1 fees', 'customer' => ['name' => 'Ama Mensah', 'phone' => '0244000111'],
+    'items' => [['description' => 'Tuition', 'quantity' => 1, 'amount' => '450.00']],
+    'dueDate' => '2026-12-31', 'reference' => 'INV-1001',
+]);
+echo $inv->data['payment_link'];           // give this to the customer
+$moolre->invoices->status(['reference' => 'INV-1001']);
+foreach ($moolre->invoices->iterate(['status' => 'pending']) as $i) { echo $i['invoiceid']; }
+$moolre->invoices->cancel($inv->data['invoiceid']);
+```
+
+### Verifying webhooks
+
+Moolre signs every callback: `X-Moolre-Signature: t=<unix>,v1=<hex HMAC-SHA256(wallet secret, "<t>.<raw body>")>`. Verify the **raw** body before trusting it, and dedupe on `event_id`.
+
+```php
+$raw = file_get_contents('php://input');
+try {
+    $event = Moolre\Webhook::construct($raw, $_SERVER['HTTP_X_MOOLRE_SIGNATURE'] ?? null, getenv('MOOLRE_WALLET_SECRET'));
+} catch (Moolre\Exceptions\WebhookSignatureError $e) {   // $e->reason: malformed | mismatch | timestamp
+    http_response_code(400);
+    exit;
+}
+if ($event->event === 'payment.succeeded') { /* fulfil once per $event->eventId */ }
+http_response_code(200);
+```
+
+`Webhook::verify($raw, $header, $secret, $toleranceSec = 300)` returns a boolean. The comparison is constant-time and timestamps outside the tolerance are rejected.
+
+### Single-file install
+
+Without Composer, copy `moolre-sdk.php` (the server SDK only) and `require` it: `require 'moolre-sdk.php'; $moolre = new Moolre\Moolre([...]);`.
+
+### Server SDK tests
+
+`php tests/sdk/run.php` starts a local mock API with `php -S` and needs no dev dependencies; `MOOLRE_BUNDLE=dist/moolre-sdk.php php tests/sdk/run.php` tests the single-file bundle (build it with `php scripts/bundle.php`). Shared webhook vectors live in `tests/sdk/vectors/webhook.json`.
+
+## Hosted checkout client (`Moolre\Client`)
+
+The sections below describe the original hosted-checkout client.
+
 ## Example Project
 
 A complete raw PHP demo app is included at [`examples/raw-php-app`](examples/raw-php-app). It shows a cart checkout, payment initiation, webhook callback handling, customer redirect verification, and a small local JSON order store. Its receipt is bound to the initiating browser session, and its redacted order list is available only from a loopback address.

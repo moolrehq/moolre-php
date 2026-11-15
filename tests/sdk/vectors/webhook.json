@@ -1,0 +1,279 @@
+{
+  "description": "Contract W test vectors. signature = HMAC-SHA256(secret, \"<t>.<raw body>\") hex. A case is valid iff header parses (t=digits, at least one v1 of 64 hex chars), some v1 equals the HMAC (constant time) and |now - t| <= tolerance (tolerance 0 disables the time check). Failure precedence: malformed, mismatch, timestamp.",
+  "cases": [
+    {
+      "name": "valid",
+      "secret": "whsec_test_5d41402abc4b2a76b9719d911017c592",
+      "body": "{\"status\":1,\"code\":\"P01\",\"message\":\"Transaction Successful\",\"data\":{\"txstatus\":1,\"externalref\":\"PAY-1001\",\"amount\":\"1.00\"},\"go\":null,\"event_id\":\"evt_0123456789abcdef01234567\",\"event\":\"payment.succeeded\",\"created\":\"2025-11-15T08:26:40Z\",\"notices\":[]}",
+      "now": 1763200000,
+      "tolerance": 300,
+      "header": "t=1763200000,v1=095ff6743d95388a9b97f782b44d3f9c9e8436150181f4e0b0662ea94493dfd9",
+      "valid": true,
+      "reason": null
+    },
+    {
+      "name": "valid_older_within_tolerance",
+      "secret": "whsec_test_5d41402abc4b2a76b9719d911017c592",
+      "body": "{\"status\":1,\"code\":\"P01\",\"message\":\"Transaction Successful\",\"data\":{\"txstatus\":1,\"externalref\":\"PAY-1001\",\"amount\":\"1.00\"},\"go\":null,\"event_id\":\"evt_0123456789abcdef01234567\",\"event\":\"payment.succeeded\",\"created\":\"2025-11-15T08:26:40Z\",\"notices\":[]}",
+      "now": 1763200000,
+      "tolerance": 300,
+      "header": "t=1763199701,v1=daf13267408274a0fd69514c3eaae17b944e28067edd83087c87230eddb5ba26",
+      "valid": true,
+      "reason": null
+    },
+    {
+      "name": "valid_exactly_at_tolerance_past",
+      "secret": "whsec_test_5d41402abc4b2a76b9719d911017c592",
+      "body": "{\"status\":1,\"code\":\"P01\",\"message\":\"Transaction Successful\",\"data\":{\"txstatus\":1,\"externalref\":\"PAY-1001\",\"amount\":\"1.00\"},\"go\":null,\"event_id\":\"evt_0123456789abcdef01234567\",\"event\":\"payment.succeeded\",\"created\":\"2025-11-15T08:26:40Z\",\"notices\":[]}",
+      "now": 1763200000,
+      "tolerance": 300,
+      "header": "t=1763199700,v1=027732d55fed7367981decf9ca23d020874bf3ec63502cae0aee303896d64229",
+      "valid": true,
+      "reason": null
+    },
+    {
+      "name": "valid_exactly_at_tolerance_future",
+      "secret": "whsec_test_5d41402abc4b2a76b9719d911017c592",
+      "body": "{\"status\":1,\"code\":\"P01\",\"message\":\"Transaction Successful\",\"data\":{\"txstatus\":1,\"externalref\":\"PAY-1001\",\"amount\":\"1.00\"},\"go\":null,\"event_id\":\"evt_0123456789abcdef01234567\",\"event\":\"payment.succeeded\",\"created\":\"2025-11-15T08:26:40Z\",\"notices\":[]}",
+      "now": 1763200000,
+      "tolerance": 300,
+      "header": "t=1763200300,v1=ffd539ecc07349743c0c8a20064106f49dd02c97b0e8f151be2ddd14fc8d9752",
+      "valid": true,
+      "reason": null
+    },
+    {
+      "name": "valid_unicode_and_escaped_slash_body",
+      "secret": "whsec_test_5d41402abc4b2a76b9719d911017c592",
+      "body": "{\"event\":\"payment.succeeded\",\"data\":{\"payee\":\"Kwaku Asare éè 😀\",\"note\":\"a/b \\/ c\"},\"event_id\":\"evt_aaaaaaaaaaaaaaaaaaaaaaaa\"}",
+      "now": 1763200000,
+      "tolerance": 300,
+      "header": "t=1763200000,v1=db963734e4c79e365344bf924e72101877168d1dfbc705fb919a509482a5ba28",
+      "valid": true,
+      "reason": null
+    },
+    {
+      "name": "valid_uppercase_hex",
+      "secret": "whsec_test_5d41402abc4b2a76b9719d911017c592",
+      "body": "{\"status\":1,\"code\":\"P01\",\"message\":\"Transaction Successful\",\"data\":{\"txstatus\":1,\"externalref\":\"PAY-1001\",\"amount\":\"1.00\"},\"go\":null,\"event_id\":\"evt_0123456789abcdef01234567\",\"event\":\"payment.succeeded\",\"created\":\"2025-11-15T08:26:40Z\",\"notices\":[]}",
+      "now": 1763200000,
+      "tolerance": 300,
+      "header": "t=1763200000,v1=095FF6743D95388A9B97F782B44D3F9C9E8436150181F4E0B0662EA94493DFD9",
+      "valid": true,
+      "reason": null
+    },
+    {
+      "name": "valid_with_spaces_after_commas",
+      "secret": "whsec_test_5d41402abc4b2a76b9719d911017c592",
+      "body": "{\"status\":1,\"code\":\"P01\",\"message\":\"Transaction Successful\",\"data\":{\"txstatus\":1,\"externalref\":\"PAY-1001\",\"amount\":\"1.00\"},\"go\":null,\"event_id\":\"evt_0123456789abcdef01234567\",\"event\":\"payment.succeeded\",\"created\":\"2025-11-15T08:26:40Z\",\"notices\":[]}",
+      "now": 1763200000,
+      "tolerance": 300,
+      "header": "t=1763200000, v1=095ff6743d95388a9b97f782b44d3f9c9e8436150181f4e0b0662ea94493dfd9",
+      "valid": true,
+      "reason": null
+    },
+    {
+      "name": "valid_two_v1_one_good",
+      "secret": "whsec_test_5d41402abc4b2a76b9719d911017c592",
+      "body": "{\"status\":1,\"code\":\"P01\",\"message\":\"Transaction Successful\",\"data\":{\"txstatus\":1,\"externalref\":\"PAY-1001\",\"amount\":\"1.00\"},\"go\":null,\"event_id\":\"evt_0123456789abcdef01234567\",\"event\":\"payment.succeeded\",\"created\":\"2025-11-15T08:26:40Z\",\"notices\":[]}",
+      "now": 1763200000,
+      "tolerance": 300,
+      "header": "t=1763200000,v1=0000000000000000000000000000000000000000000000000000000000000000,v1=095ff6743d95388a9b97f782b44d3f9c9e8436150181f4e0b0662ea94493dfd9",
+      "valid": true,
+      "reason": null
+    },
+    {
+      "name": "valid_unknown_scheme_ignored",
+      "secret": "whsec_test_5d41402abc4b2a76b9719d911017c592",
+      "body": "{\"status\":1,\"code\":\"P01\",\"message\":\"Transaction Successful\",\"data\":{\"txstatus\":1,\"externalref\":\"PAY-1001\",\"amount\":\"1.00\"},\"go\":null,\"event_id\":\"evt_0123456789abcdef01234567\",\"event\":\"payment.succeeded\",\"created\":\"2025-11-15T08:26:40Z\",\"notices\":[]}",
+      "now": 1763200000,
+      "tolerance": 300,
+      "header": "t=1763200000,v0=abcdef,v1=095ff6743d95388a9b97f782b44d3f9c9e8436150181f4e0b0662ea94493dfd9",
+      "valid": true,
+      "reason": null
+    },
+    {
+      "name": "valid_tolerance_disabled_old_timestamp",
+      "secret": "whsec_test_5d41402abc4b2a76b9719d911017c592",
+      "body": "{\"status\":1,\"code\":\"P01\",\"message\":\"Transaction Successful\",\"data\":{\"txstatus\":1,\"externalref\":\"PAY-1001\",\"amount\":\"1.00\"},\"go\":null,\"event_id\":\"evt_0123456789abcdef01234567\",\"event\":\"payment.succeeded\",\"created\":\"2025-11-15T08:26:40Z\",\"notices\":[]}",
+      "now": 1763200000,
+      "tolerance": 0,
+      "header": "t=1763100000,v1=ef487f2f8146b0a341086560068e382ee74f00f014460a33b82d21cfa1d0d0cf",
+      "valid": true,
+      "reason": null
+    },
+    {
+      "name": "invalid_tampered_body",
+      "secret": "whsec_test_5d41402abc4b2a76b9719d911017c592",
+      "body": "{\"status\":1,\"code\":\"P01\",\"message\":\"Transaction Successful\",\"data\":{\"txstatus\":1,\"externalref\":\"PAY-1001\",\"amount\":\"9.00\"},\"go\":null,\"event_id\":\"evt_0123456789abcdef01234567\",\"event\":\"payment.succeeded\",\"created\":\"2025-11-15T08:26:40Z\",\"notices\":[]}",
+      "now": 1763200000,
+      "tolerance": 300,
+      "header": "t=1763200000,v1=095ff6743d95388a9b97f782b44d3f9c9e8436150181f4e0b0662ea94493dfd9",
+      "valid": false,
+      "reason": "mismatch"
+    },
+    {
+      "name": "invalid_wrong_secret",
+      "secret": "whsec_test_5d41402abc4b2a76b9719d911017c592",
+      "body": "{\"status\":1,\"code\":\"P01\",\"message\":\"Transaction Successful\",\"data\":{\"txstatus\":1,\"externalref\":\"PAY-1001\",\"amount\":\"1.00\"},\"go\":null,\"event_id\":\"evt_0123456789abcdef01234567\",\"event\":\"payment.succeeded\",\"created\":\"2025-11-15T08:26:40Z\",\"notices\":[]}",
+      "now": 1763200000,
+      "tolerance": 300,
+      "header": "t=1763200000,v1=1b96eb5fd45c36cbf256795baa2ce0885c5302c1d6757a02c33e63515fda2e56",
+      "valid": false,
+      "reason": "mismatch"
+    },
+    {
+      "name": "invalid_timestamp_swapped",
+      "secret": "whsec_test_5d41402abc4b2a76b9719d911017c592",
+      "body": "{\"status\":1,\"code\":\"P01\",\"message\":\"Transaction Successful\",\"data\":{\"txstatus\":1,\"externalref\":\"PAY-1001\",\"amount\":\"1.00\"},\"go\":null,\"event_id\":\"evt_0123456789abcdef01234567\",\"event\":\"payment.succeeded\",\"created\":\"2025-11-15T08:26:40Z\",\"notices\":[]}",
+      "now": 1763200000,
+      "tolerance": 300,
+      "header": "t=1763200001,v1=095ff6743d95388a9b97f782b44d3f9c9e8436150181f4e0b0662ea94493dfd9",
+      "valid": false,
+      "reason": "mismatch"
+    },
+    {
+      "name": "invalid_signed_without_timestamp_dot",
+      "secret": "whsec_test_5d41402abc4b2a76b9719d911017c592",
+      "body": "{\"status\":1,\"code\":\"P01\",\"message\":\"Transaction Successful\",\"data\":{\"txstatus\":1,\"externalref\":\"PAY-1001\",\"amount\":\"1.00\"},\"go\":null,\"event_id\":\"evt_0123456789abcdef01234567\",\"event\":\"payment.succeeded\",\"created\":\"2025-11-15T08:26:40Z\",\"notices\":[]}",
+      "now": 1763200000,
+      "tolerance": 300,
+      "header": "t=1763200000,v1=11cd9198fedaccb4b542f63da0c3026b90b598064035e4e8d165af2bc1da2998",
+      "valid": false,
+      "reason": "mismatch"
+    },
+    {
+      "name": "invalid_expired",
+      "secret": "whsec_test_5d41402abc4b2a76b9719d911017c592",
+      "body": "{\"status\":1,\"code\":\"P01\",\"message\":\"Transaction Successful\",\"data\":{\"txstatus\":1,\"externalref\":\"PAY-1001\",\"amount\":\"1.00\"},\"go\":null,\"event_id\":\"evt_0123456789abcdef01234567\",\"event\":\"payment.succeeded\",\"created\":\"2025-11-15T08:26:40Z\",\"notices\":[]}",
+      "now": 1763200000,
+      "tolerance": 300,
+      "header": "t=1763199699,v1=39ed68b52a338d0b0907bfce7c1a8196bd41f761db122507d894242a92ce2715",
+      "valid": false,
+      "reason": "timestamp"
+    },
+    {
+      "name": "invalid_too_far_in_future",
+      "secret": "whsec_test_5d41402abc4b2a76b9719d911017c592",
+      "body": "{\"status\":1,\"code\":\"P01\",\"message\":\"Transaction Successful\",\"data\":{\"txstatus\":1,\"externalref\":\"PAY-1001\",\"amount\":\"1.00\"},\"go\":null,\"event_id\":\"evt_0123456789abcdef01234567\",\"event\":\"payment.succeeded\",\"created\":\"2025-11-15T08:26:40Z\",\"notices\":[]}",
+      "now": 1763200000,
+      "tolerance": 300,
+      "header": "t=1763200301,v1=2d4decf8d715b9a1c3b3dfe562038817739611793c47af519ffaf1970bda0e20",
+      "valid": false,
+      "reason": "timestamp"
+    },
+    {
+      "name": "invalid_custom_tolerance_60",
+      "secret": "whsec_test_5d41402abc4b2a76b9719d911017c592",
+      "body": "{\"status\":1,\"code\":\"P01\",\"message\":\"Transaction Successful\",\"data\":{\"txstatus\":1,\"externalref\":\"PAY-1001\",\"amount\":\"1.00\"},\"go\":null,\"event_id\":\"evt_0123456789abcdef01234567\",\"event\":\"payment.succeeded\",\"created\":\"2025-11-15T08:26:40Z\",\"notices\":[]}",
+      "now": 1763200000,
+      "tolerance": 60,
+      "header": "t=1763199939,v1=a442cd9d955885461c9f515483e405091ce79323954262d190d7e5fb9c1c505d",
+      "valid": false,
+      "reason": "timestamp"
+    },
+    {
+      "name": "invalid_mismatch_beats_timestamp",
+      "secret": "whsec_test_5d41402abc4b2a76b9719d911017c592",
+      "body": "{\"status\":1,\"code\":\"P01\",\"message\":\"Transaction Successful\",\"data\":{\"txstatus\":1,\"externalref\":\"PAY-1001\",\"amount\":\"1.00\"},\"go\":null,\"event_id\":\"evt_0123456789abcdef01234567\",\"event\":\"payment.succeeded\",\"created\":\"2025-11-15T08:26:40Z\",\"notices\":[]}",
+      "now": 1763200000,
+      "tolerance": 300,
+      "header": "t=1763190001,v1=1111111111111111111111111111111111111111111111111111111111111111",
+      "valid": false,
+      "reason": "mismatch"
+    },
+    {
+      "name": "invalid_empty_header",
+      "secret": "whsec_test_5d41402abc4b2a76b9719d911017c592",
+      "body": "{\"status\":1,\"code\":\"P01\",\"message\":\"Transaction Successful\",\"data\":{\"txstatus\":1,\"externalref\":\"PAY-1001\",\"amount\":\"1.00\"},\"go\":null,\"event_id\":\"evt_0123456789abcdef01234567\",\"event\":\"payment.succeeded\",\"created\":\"2025-11-15T08:26:40Z\",\"notices\":[]}",
+      "now": 1763200000,
+      "tolerance": 300,
+      "header": "",
+      "valid": false,
+      "reason": "malformed"
+    },
+    {
+      "name": "invalid_missing_header",
+      "secret": "whsec_test_5d41402abc4b2a76b9719d911017c592",
+      "body": "{\"status\":1,\"code\":\"P01\",\"message\":\"Transaction Successful\",\"data\":{\"txstatus\":1,\"externalref\":\"PAY-1001\",\"amount\":\"1.00\"},\"go\":null,\"event_id\":\"evt_0123456789abcdef01234567\",\"event\":\"payment.succeeded\",\"created\":\"2025-11-15T08:26:40Z\",\"notices\":[]}",
+      "now": 1763200000,
+      "tolerance": 300,
+      "header": null,
+      "valid": false,
+      "reason": "malformed"
+    },
+    {
+      "name": "invalid_no_v1",
+      "secret": "whsec_test_5d41402abc4b2a76b9719d911017c592",
+      "body": "{\"status\":1,\"code\":\"P01\",\"message\":\"Transaction Successful\",\"data\":{\"txstatus\":1,\"externalref\":\"PAY-1001\",\"amount\":\"1.00\"},\"go\":null,\"event_id\":\"evt_0123456789abcdef01234567\",\"event\":\"payment.succeeded\",\"created\":\"2025-11-15T08:26:40Z\",\"notices\":[]}",
+      "now": 1763200000,
+      "tolerance": 300,
+      "header": "t=1763200000",
+      "valid": false,
+      "reason": "malformed"
+    },
+    {
+      "name": "invalid_no_timestamp",
+      "secret": "whsec_test_5d41402abc4b2a76b9719d911017c592",
+      "body": "{\"status\":1,\"code\":\"P01\",\"message\":\"Transaction Successful\",\"data\":{\"txstatus\":1,\"externalref\":\"PAY-1001\",\"amount\":\"1.00\"},\"go\":null,\"event_id\":\"evt_0123456789abcdef01234567\",\"event\":\"payment.succeeded\",\"created\":\"2025-11-15T08:26:40Z\",\"notices\":[]}",
+      "now": 1763200000,
+      "tolerance": 300,
+      "header": "v1=095ff6743d95388a9b97f782b44d3f9c9e8436150181f4e0b0662ea94493dfd9",
+      "valid": false,
+      "reason": "malformed"
+    },
+    {
+      "name": "invalid_non_numeric_timestamp",
+      "secret": "whsec_test_5d41402abc4b2a76b9719d911017c592",
+      "body": "{\"status\":1,\"code\":\"P01\",\"message\":\"Transaction Successful\",\"data\":{\"txstatus\":1,\"externalref\":\"PAY-1001\",\"amount\":\"1.00\"},\"go\":null,\"event_id\":\"evt_0123456789abcdef01234567\",\"event\":\"payment.succeeded\",\"created\":\"2025-11-15T08:26:40Z\",\"notices\":[]}",
+      "now": 1763200000,
+      "tolerance": 300,
+      "header": "t=abc,v1=095ff6743d95388a9b97f782b44d3f9c9e8436150181f4e0b0662ea94493dfd9",
+      "valid": false,
+      "reason": "malformed"
+    },
+    {
+      "name": "invalid_short_signature",
+      "secret": "whsec_test_5d41402abc4b2a76b9719d911017c592",
+      "body": "{\"status\":1,\"code\":\"P01\",\"message\":\"Transaction Successful\",\"data\":{\"txstatus\":1,\"externalref\":\"PAY-1001\",\"amount\":\"1.00\"},\"go\":null,\"event_id\":\"evt_0123456789abcdef01234567\",\"event\":\"payment.succeeded\",\"created\":\"2025-11-15T08:26:40Z\",\"notices\":[]}",
+      "now": 1763200000,
+      "tolerance": 300,
+      "header": "t=1763200000,v1=abcd",
+      "valid": false,
+      "reason": "malformed"
+    },
+    {
+      "name": "invalid_non_hex_signature",
+      "secret": "whsec_test_5d41402abc4b2a76b9719d911017c592",
+      "body": "{\"status\":1,\"code\":\"P01\",\"message\":\"Transaction Successful\",\"data\":{\"txstatus\":1,\"externalref\":\"PAY-1001\",\"amount\":\"1.00\"},\"go\":null,\"event_id\":\"evt_0123456789abcdef01234567\",\"event\":\"payment.succeeded\",\"created\":\"2025-11-15T08:26:40Z\",\"notices\":[]}",
+      "now": 1763200000,
+      "tolerance": 300,
+      "header": "t=1763200000,v1=zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+      "valid": false,
+      "reason": "malformed"
+    },
+    {
+      "name": "invalid_empty_secret",
+      "secret": "",
+      "body": "{\"status\":1,\"code\":\"P01\",\"message\":\"Transaction Successful\",\"data\":{\"txstatus\":1,\"externalref\":\"PAY-1001\",\"amount\":\"1.00\"},\"go\":null,\"event_id\":\"evt_0123456789abcdef01234567\",\"event\":\"payment.succeeded\",\"created\":\"2025-11-15T08:26:40Z\",\"notices\":[]}",
+      "now": 1763200000,
+      "tolerance": 300,
+      "header": "t=1763200000,v1=a6860335fc797e54447aba8416ef89ac71af4f40a64584a9329a6b85455b8f4d",
+      "valid": false,
+      "reason": "malformed"
+    }
+  ],
+  "parse": [
+    {
+      "raw": "{\"status\":1,\"code\":\"P01\",\"message\":\"Transaction Successful\",\"data\":{\"txstatus\":1,\"externalref\":\"PAY-1001\",\"amount\":\"1.00\"},\"go\":null,\"event_id\":\"evt_0123456789abcdef01234567\",\"event\":\"payment.succeeded\",\"created\":\"2025-11-15T08:26:40Z\",\"notices\":[]}",
+      "eventId": "evt_0123456789abcdef01234567",
+      "event": "payment.succeeded",
+      "created": "2025-11-15T08:26:40Z"
+    },
+    {
+      "raw": "{\"status\":1,\"code\":\"P01\",\"data\":{}}",
+      "eventId": null,
+      "event": null,
+      "created": null
+    }
+  ]
+}

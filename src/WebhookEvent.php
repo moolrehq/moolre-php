@@ -36,6 +36,11 @@ final class WebhookEvent
         $this->code = isset($raw['code']) ? (string) $raw['code'] : null;
         $this->message = $raw['message'] ?? null;
         $this->data = $raw['data'] ?? null;
-        $this->notices = isset($raw['notices']) && is_array($raw['notices']) ? $raw['notices'] : [];
+        $meta = isset($raw['meta']) && is_array($raw['meta']) ? $raw['meta'] : [];
+        if (isset($meta['notices']) && is_array($meta['notices'])) {
+            $this->notices = $meta['notices'];
+        } else {
+            $this->notices = isset($raw['notices']) && is_array($raw['notices']) ? $raw['notices'] : [];
+        }
     }
 }

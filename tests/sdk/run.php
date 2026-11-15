@@ -127,7 +127,7 @@ function client(array $o = []): Moolre
 
 // ---- tests -------------------------------------------------------------------------------------
 t('headers, path and body of a collection', function () {
-    script([[200, ['status' => 1, 'code' => 'TR099', 'message' => null, 'data' => 'abc', 'go' => null, 'request_id' => 'req_1'], ['X-Request-Id' => 'req_h']]]);
+    script([[200, ['status' => 1, 'code' => 'TR099', 'message' => null, 'data' => 'abc', 'go' => null, 'meta' => ['requestid' => 'req_1', 'notices' => []]], ['X-Request-Id' => 'req_h']]]);
     $r = client()->payments->initiate(['channel' => 'MTN', 'currency' => 'GHS', 'payer' => '0241234567', 'amount' => 1.5, 'externalRef' => 'PAY-1']);
     $c = calls()[0];
     same('POST', $c['method']);
@@ -182,7 +182,7 @@ t('validate-name sends the numeric channel id the endpoint reads today', functio
 
 t('error mapping: code, message, fields, requestId, typed classes', function () {
     script([
-        [200, ['status' => 0, 'code' => 'TP13', 'message' => 'External Reference is required and must be unique.', 'data' => 'externalref', 'go' => null, 'request_id' => 'req_a']],
+        [200, ['status' => 0, 'code' => 'TP13', 'message' => 'External Reference is required and must be unique.', 'data' => 'externalref', 'go' => null, 'meta' => ['requestid' => 'req_a', 'notices' => []]]],
         [200, ['status' => '0', 'code' => 'AIN01', 'message' => 'Authentication Error', 'data' => null, 'go' => null]],
         [200, ['status' => 0, 'code' => 'IDEM01', 'message' => 'Idempotency-Key reused with a different request', 'data' => null, 'go' => null]],
         [200, ['status' => 0, 'code' => 'OTP429', 'message' => 'Too many OTP attempts. Try again later.', 'data' => null, 'go' => null]],
@@ -215,9 +215,30 @@ t('strict mode header, 4xx bodies parsed, throwOnError false returns the result'
     same('AIN01', $r->code);
 });
 
+t('legacy envelope fallback and header fallback for request id and notices', function () {
+    $notice = ['code' => 'N1', 'message' => 'm'];
+    $cases = [
+        [['status' => 1, 'code' => 'ST08', 'data' => null, 'go' => null, 'request_id' => 'req_legacy', 'notices' => [$notice]], 'req_legacy', [$notice]],
+        [['status' => 1, 'code' => 'ST08', 'data' => null, 'go' => null], 'req_h', []],
+        [['status' => 1, 'code' => 'ST08', 'data' => null, 'go' => null, 'request_id' => 'req_legacy', 'meta' => ['requestid' => 'req_meta', 'notices' => []], 'notices' => [$notice]], 'req_meta', []],
+        [['status' => 1, 'code' => 'ST08', 'data' => null, 'go' => null, 'meta' => ['notices' => [$notice]]], 'req_h', [$notice]],
+    ];
+    $script = [];
+    foreach ($cases as $c) {
+        $script[] = [200, $c[0], ['X-Request-Id' => 'req_h']];
+    }
+    script($script);
+    $cl = client(['logger' => null]);
+    foreach ($cases as $c) {
+        $r = $cl->accounts->transactions();
+        same($c[1], $r->requestId);
+        same($c[2], $r->notices);
+    }
+});
+
 t('notices exposed and logged once per code', function () {
     $notice = ['code' => 'DEPRECATED_NUMERIC_CHANNEL', 'message' => 'Use the channel name', 'docs' => 'https://docs.moolre.com/guides/supported-channels'];
-    script([[200, ['status' => 1, 'code' => 'ST08', 'message' => 'ok', 'data' => ['txcount' => '0', 'transactions' => []], 'go' => null, 'request_id' => 'req_n', 'notices' => [$notice]]]]);
+    script([[200, ['status' => 1, 'code' => 'ST08', 'message' => 'ok', 'data' => ['txcount' => '0', 'transactions' => []], 'go' => null, 'meta' => ['requestid' => 'req_n', 'notices' => [$notice]]]]]);
     $logs = [];
     $c = client(['logger' => static function (string $m) use (&$logs): void {
         $logs[] = $m;
@@ -230,10 +251,23 @@ t('notices exposed and logged once per code', function () {
     check(strpos($logs[0], 'DEPRECATED_NUMERIC_CHANNEL') !== false);
 });
 
-t('replayed flag is surfaced', function () {
-    script([[200, ['status' => 1, 'code' => 'OBGH01', 'message' => 'x', 'data' => null, 'go' => null, 'replayed' => true]]]);
-    $r = client()->transfers->create(['channel' => 'MTN', 'currency' => 'GHS', 'amount' => '1', 'receiver' => '024', 'externalRef' => 'r'], ['idempotencyKey' => 'k1']);
-    same(true, $r->replayed);
+t('replayed flag is surfaced (meta.replayed, legacy top-level, absent)', function () {
+    $bodies = [
+        [['status' => 1, 'code' => 'OBGH01', 'message' => 'x', 'data' => null, 'go' => null, 'meta' => ['requestid' => 'req_1', 'notices' => [], 'replayed' => true]], true],
+        [['status' => 1, 'code' => 'OBGH01', 'message' => 'x', 'data' => null, 'go' => null, 'replayed' => true], true],
+        [['status' => 1, 'code' => 'OBGH01', 'message' => 'x', 'data' => null, 'go' => null, 'meta' => ['requestid' => 'req_1', 'notices' => []]], false],
+        [['status' => 1, 'code' => 'BLK02', 'message' => 'x', 'data' => ['replayed' => true], 'go' => null, 'meta' => ['requestid' => 'req_1', 'notices' => []]], false],
+    ];
+    $script = [];
+    foreach ($bodies as $b) {
+        $script[] = [200, $b[0]];
+    }
+    script($script);
+    $c = client();
+    foreach ($bodies as $b) {
+        $r = $c->transfers->create(['channel' => 'MTN', 'currency' => 'GHS', 'amount' => '1', 'receiver' => '024', 'externalRef' => 'r'], ['idempotencyKey' => 'k1']);
+        same($b[1], $r->replayed);
+    }
 });
 
 t('retry rules', function () {
@@ -433,6 +467,7 @@ t('webhook parse vectors and sign round trip', function () use ($vectors) {
         same($p['eventId'], $e->eventId);
         same($p['event'], $e->event);
         same($p['created'], $e->created);
+        same($p['notices'], $e->notices, $p['name']);
     }
     $body = '{"event":"webhook.test","event_id":"evt_x","created":"2026-11-15T00:00:00Z","data":{}}';
     $h = Webhook::sign($body, 's3cret');

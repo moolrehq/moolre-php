@@ -40,9 +40,20 @@ final class Result
         $this->message = $raw['message'] ?? null;
         $this->data = $raw['data'] ?? null;
         $this->go = $raw['go'] ?? null;
-        $this->requestId = isset($raw['request_id']) && is_string($raw['request_id']) ? $raw['request_id'] : $headerRequestId;
-        $this->notices = isset($raw['notices']) && is_array($raw['notices']) ? $raw['notices'] : [];
-        $this->replayed = ($raw['replayed'] ?? false) === true;
+        // Request id: meta.requestid, else legacy top-level request_id, else the X-Request-Id header.
+        // Notices: meta.notices, else legacy top-level notices, else [].
+        $meta = isset($raw['meta']) && is_array($raw['meta']) ? $raw['meta'] : [];
+        $rid = isset($meta['requestid']) && is_string($meta['requestid']) ? $meta['requestid'] : null;
+        if ($rid === null && isset($raw['request_id']) && is_string($raw['request_id'])) {
+            $rid = $raw['request_id'];
+        }
+        $this->requestId = $rid !== null ? $rid : $headerRequestId;
+        if (isset($meta['notices']) && is_array($meta['notices'])) {
+            $this->notices = $meta['notices'];
+        } else {
+            $this->notices = isset($raw['notices']) && is_array($raw['notices']) ? $raw['notices'] : [];
+        }
+        $this->replayed = ($meta['replayed'] ?? false) === true || ($raw['replayed'] ?? false) === true;
     }
 
     /** Collection answered TP14: ask the customer for the SMS code and call verifyOtp(). */

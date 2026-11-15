@@ -16,7 +16,7 @@ use Moolre\Exceptions\NetworkError;
  */
 final class Transport
 {
-    public const VERSION = '1.1.0';
+    public const VERSION = '1.1.2';
     public const LIVE_URL = 'https://api.moolre.com';
     public const SANDBOX_URL = 'https://sandbox.moolre.com';
 

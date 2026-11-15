@@ -81,6 +81,10 @@ if ($result->otpRequired()) {            // code TP14: the customer was sent an 
 
 Every call returns a `Moolre\Result` (`ok`, `status`, `code`, `message`, `data`, `go`, `requestId`, `notices`, `replayed`, `httpStatus`, `raw`). When the API answers `status: 0` an `Moolre\Exceptions\ApiError` is thrown (subclasses `AuthenticationError`, `IdempotencyError`, `RateLimitError`, `NotFoundError`, `ValidationError`, `ServerError`) carrying `apiCode`, `apiMessage`, `fields`, `requestId` and `result`; pass `'throwOnError' => false` to get the result instead. Network failures throw `NetworkError`, non-JSON replies `InvalidResponseError`, bad configuration `ConfigurationError`.
 
+`requestId` and `notices` come from the `meta` object (`meta.requestid`, `meta.notices`, and `meta.replayed` on idempotent replays) that the API adds to every JSON response; the SDK falls back to the legacy top-level `request_id` / `notices`, then to the `X-Request-Id` header, so older and newer API versions both work.
+
+Decide the outcome of a call from `status`, `code` and `data.txstatus` (0 pending, 1 succeeded, 2 failed). The codes PY01, PY02, TR01, TR02, TP11, TP18, APY10, APY16, ASL06 and SYS500 mean "unknown, may still succeed": treat them as pending, check the status and never resend blindly.
+
 Other options: `'strictHttpStatus' => true` (ask for real 4xx/5xx codes), `maxRetries` (default 2; only reads and calls that carry an `idempotencyKey` are retried), `timeoutSec` (60), `logger` (a `callable(string $message, array $context)`; API notices are logged once per code, default `error_log`).
 
 ### Payouts and name validation

@@ -2,7 +2,13 @@
 
 All notable changes to `moolre/moolre-php` will be documented in this file.
 
-## Unreleased
+## 1.1.2 - 2026-11-15
+
+- `Result::$replayed` reads `meta.replayed` (legacy top-level `replayed` still accepted). `WebhookEvent::$notices` reads `meta.notices` (legacy top-level `notices` still accepted). Webhook signatures are unchanged.
+
+## 1.1.1 - 2026-11-15
+
+- `Result::$requestId` and `Result::$notices` are read from the new `meta` object (`meta.requestid`, `meta.notices`); the legacy top-level `request_id` / `notices` and the `X-Request-Id` header remain as fallbacks. No public API change.
 
 ## 1.1.0 - 2026-11-15
 
